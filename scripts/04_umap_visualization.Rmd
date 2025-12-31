@@ -1,0 +1,355 @@
+---
+title: "radiohead umap"
+author: "Sammy Stone"
+date: "2024-11-08"
+output: html_document
+---
+```{r}
+#using systemic_df
+
+library(umap)
+library(ggplot2)
+library(tidyverse)
+library(viridis)
+library(uwot)
+library(fastDummies)
+
+```
+
+Load:
+```{r}
+#systemic df
+systemic_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_systemicdrugs.csv")
+
+#sub_df
+sub_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
+
+#cohortsub
+
+cohortsub <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_subclasses.csv")
+
+```
+
+
+```{r}
+df<- systemic_df
+```
+
+#medication UMAP
+
+```{r}
+top20 <- systemic_df %>%
+  filter(!is.na(subject.dead.hospice)) %>%
+  filter(stage != "UNK") %>%
+  select(-c(2, 4, 5, 6, 7, 8, 11)) #remove cancer type, death event, age, line.1.therapy, prior.targeted therapy, mets, irae any, stage
+```
+
+any
+```{r}
+
+m.any <- top20 %>%
+  select(-Corticosteroids, -irae.any, -irae.severe, -os, -record_id )
+```
+
+```{r}
+colnames(m.any)
+```
+
+```{r}
+#write_csv(m.any, "~/Desktop/RADIOHEAD_umap_df.csv")
+```
+
+```{r}
+nrow(m.any)
+```
+
+```{r}
+set.seed(123)
+umap_config <- umap.defaults
+umap_config$random_state <- 123
+
+umap_result <- umap(m.any, n_neighbors = 20, min_dist = 0.3)
+umap_df <- data.frame(umap_result)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+```
+
+```{r}
+# Ensure Opioid is a factor with levels 0 and 1
+umap_df$Opioid <- factor(m.any$Opioid, levels = c(0, 1))
+
+# Define custom colors
+colors_1 <- c("0" = "deepskyblue", "1" = "orange")
+
+# Plot
+p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Opioid)) +
+  geom_point() +
+  scale_color_manual(values = colors_1) +  # Apply custom colors
+  theme_minimal() +
+  theme(
+    legend.position = c(0.8, 0.8),
+     axis.text = element_text(size = 18), 
+    axis.title = element_text(size = 22),
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 22))  +
+  labs(color = "Opioids") 
+
+print(p)
+```
+
+
+```{r}
+print(p)
+```
+
+```{r}
+#ggsave("opioid_umap3.pdf", plot = p, device = "pdf", width = 7,  height = 7)
+```
+
+#UMAP Overlap
+Fig 2B
+
+```{r}
+cohortsub2 <- cohortsub %>%
+  filter(!is.na(subject.dead.hospice)) %>%
+  filter(stage != "UNK")
+```
+
+```{r}
+shared <- cohortsub2 %>%
+  select(record_id, Opioid, Beta_Blockers) %>%
+  mutate(Exposure = case_when(
+    Opioid == 1 & Beta_Blockers == 0 ~ "Opioids",
+    Opioid == 0 &  Beta_Blockers == 1 ~ "Beta-Blockers",
+    Opioid == 1 & Beta_Blockers == 1 ~ "Overlap",
+    TRUE ~ "Other"
+  ))
+```
+
+```{r}
+umap_df$Exposure <- factor(shared$Exposure, levels = c("Opioids", "Beta-Blockers", "Overlap", "Other"))
+
+colors_2 <- c("Opioids" = "#08306B",
+              "Beta-Blockers" = "#FDAE61",
+              "Overlap" = "#00BFFF",
+              "Other" = "grey")
+
+```
+
+```{r}
+# Plot UMAP with multiple exposure categories
+p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Exposure)) +
+  geom_point(size = 1.5, alpha = 1) +  # Adjust transparency for better overlap visualization
+  scale_color_manual(values = colors_2) +  
+  theme_minimal() +  
+  theme(
+    legend.position = c(0.87, 0.85),
+    axis.text = element_text(size = 18), 
+    axis.title = element_text(size = 22),
+    legend.text = element_text(size = 20),
+    legend.title = element_blank(),
+     panel.grid = element_blank(),  # Removes all grid lines
+    panel.border = element_blank(), # Removes outer border
+    axis.line = element_line(color = "grey")
+  ) +
+  labs(x = "UMAP 1", y = "UMAP 2", color = NULL)
+print(p)
+```
+```{r}
+ggsave("shared_umap.pdf", plot = p, device = "pdf", width = 9,  height = 7)
+```
+
+
+
+#Jaccards Index of Similarity- like overlap, but not calculated with respect to smaller size
+calculate overlap between opioids with anti-emetic, laxative, diuretic, beta-blocker, systemic corticosteroids, benzodiazepines w/ percentages 
+
+```{r}
+# Define two sets
+set1 <- c(1, 2, 3, 4, 5)
+set2 <- c(3, 4, 5, 6, 7)
+
+# Function to calculate Jaccard indec
+calculate_jaccard<- function(set1, set2) {
+  intersection <- intersect(set1, set2)
+  union <- union(set1, set2)
+  jaccard_coefficient <- length(intersection) /length(union)
+  return(jaccard_coefficient)
+}
+
+# Calculate Overlap coefficient
+jaccard <- calculate_jaccard(set1, set2)
+print(jaccard)
+```
+
+define columns
+```{r}
+cols <- c("Anti_emetic", "Laxative", "Diuretic", "Beta_Blockers", "Corticosteroid_systemic", "Benzodiazepines")
+```
+
+loop 
+```{r}
+#initialize results list 
+results <- list()
+
+for (col in cols) {
+  overlap <- calculate_jaccard(
+    which(sub_df$Opioid == 1),
+    which(sub_df[[col]] == 1)
+  )
+  results[[col]] <- overlap
+} 
+
+#convert results to a df
+results_df <- data.frame(
+  Drug_class = names(results), 
+  Jaccard_Index = unlist(results)
+)
+results_df <- results_df %>%
+  mutate(Drug_class = case_when(
+    Drug_class == "Anti_emetic" ~ "Anti-emetics",
+    Drug_class == "Laxative" ~ "Laxatives",
+    Drug_class == "Beta_Blockers" ~ "Beta-Blockers",
+    Drug_class == "Corticosteroid_systemic" ~ "Corticosteroid-systemic",
+    Drug_class == "Diuretic" ~ "Diuretics",
+   TRUE ~ Drug_class))
+   
+#save as excel 
+#write.xlsx(results_df, "jaccardresults.xlsx")
+
+View(results_df)
+
+```
+
+```{r}
+results_df$Jaccard_Prop <- results_df$Jaccard_Index 
+
+# Reorder the Drug_Class factor based on Percent_Overlap
+results_df$Drug_Class <- factor(results_df$Drug_class, 
+                                levels = results_df$Drug_class[order(results_df$Jaccard_Prop, decreasing = TRUE)])
+
+# Create the bar plot with ordered Drug_Class and extended y-axis
+ggplot(results_df, aes(x = Drug_Class, y = Jaccard_Prop)) +
+  geom_bar(stat = "identity", fill = "deepskyblue", color = "grey", alpha=.6, width=.6) +
+  theme_minimal() +
+  labs(
+    title = "",
+    x = "",
+    y = "Jaccard Coefficient"
+  ) +
+   theme(
+    axis.text = element_text(size = 14, color = "black"),  # Axis tick labels
+    axis.title = element_text(size = 16, color = "black") # Axis titles
+  ) +
+  # Extend y-axis to 100%
+  expand_limits(y = c(0, 1)) + 
+  coord_flip() 
+#geom_hline(yintercept = 25, linetype = "dashed", color = "darkgrey", linewidth = 0.5)  # Add horizontal dashed line at 50%
+
+# Optionally save the plot
+#ggsave("Jaccard_barplot.pdf")
+
+```
+manual check 
+```{r}
+opioid_emetic <- sub_df %>%
+  filter(Opioid == 1 & Anti_emetic == 1)
+nrow(opioid_emetic) 
+
+emetic <- sub_df %>%
+  filter(Anti_emetic == 1)
+nrow(emetic)
+```
+
+#Beta-Blocker Jaccard 
+
+define columns
+```{r}
+cols <- c("Anti_emetic", "Laxative", "Diuretic", "Opioid", "Corticosteroid_systemic", "Benzodiazepines")
+```
+
+loop 
+```{r}
+#initialize results list 
+results <- list()
+
+for (col in cols) {
+  overlap <- calculate_jaccard(
+    which(sub_df$Beta_Blockers == 1),
+    which(sub_df[[col]] == 1)
+  )
+  results[[col]] <- overlap
+} 
+
+#convert results to a df
+results_df <- data.frame(
+  Drug_class = names(results), 
+  Jaccard_Index = unlist(results)
+)
+results_df <- results_df %>%
+  mutate(Drug_class = case_when(
+    Drug_class == "Anti_emetic" ~ "Anti-emetics",
+    Drug_class == "Laxative" ~ "Laxatives",
+    Drug_class == "Opioid" ~ "Opioids",
+    Drug_class == "Corticosteroid_systemic" ~ "Corticosteroid-systemic",
+    Drug_class == "Diuretic" ~ "Diuretics",
+   TRUE ~ Drug_class))
+   
+#save as excel 
+#write.xlsx(results_df, "jaccardresults.xlsx")
+
+View(results_df)
+
+```
+
+```{r}
+results_df$Jaccard_Prop <- results_df$Jaccard_Index 
+
+# Reorder the Drug_Class factor based on Percent_Overlap
+results_df$Drug_Class <- factor(results_df$Drug_class, 
+                                levels = results_df$Drug_class[order(results_df$Jaccard_Prop, decreasing = TRUE)])
+
+# Create the bar plot with ordered Drug_Class and extended y-axis
+ggplot(results_df, aes(x = Drug_Class, y = Jaccard_Prop)) +
+  geom_bar(stat = "identity", fill = "deepskyblue", color = "grey", alpha=.6, width=.6) +
+  theme_minimal() +
+  labs(
+    title = "",
+    x = "",
+    y = "Jaccard Coefficient"
+  ) +
+   theme(
+    axis.text = element_text(size = 14, color = "black"),  # Axis tick labels
+    axis.title = element_text(size = 16, color = "black") # Axis titles
+  ) +
+  # Extend y-axis to 100%
+  expand_limits(y = c(0, 1)) + 
+  coord_flip() 
+#geom_hline(yintercept = 25, linetype = "dashed", color = "darkgrey", linewidth = 0.5)  # Add horizontal dashed line at 50%
+
+# Optionally save the plot
+#ggsave("BB_Jaccard_barplot.pdf")
+
+```
+manual checks
+```{r}
+opioid_BB <- sub_df %>%
+  filter(Opioid == 1 & Beta_Blockers == 1)
+nrow(opioid_BB) 
+
+opioid_check <- sub_df %>%
+  filter(Opioid == 1)
+  nrow(opioid_check)
+
+opioid_check2 <- sub_df %>%
+  filter(Opioid == 1 & Beta_Blockers == 0)
+nrow(opioid_check2)
+
+bb_check <- sub_df %>%
+  filter(Beta_Blockers == 1)
+nrow(bb_check)
+
+bb_check2 <- sub_df %>%
+  filter(Beta_Blockers == 1 & Opioid == 1)
+nrow(bb_check2)
+```
+

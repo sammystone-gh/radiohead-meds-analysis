@@ -1,0 +1,175 @@
+# .gitignore for RADIOHEAD analysis repository
+
+# ============================================================================
+# CRITICAL: PRIVATE DATA - NEVER COMMIT
+# ============================================================================
+# All data files contain protected health information (PHI)
+data/
+!data/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Additional data locations that might exist
+*.csv
+*.xlsx
+*.xls
+*.rds
+*.RData
+
+# Allow example/dummy data if needed (uncomment if you create these)
+# !data/example_data.csv
+# !data/README.md
+
+# ============================================================================
+# R AND RSTUDIO
+# ============================================================================
+# History files
+.Rhistory
+.Rapp.history
+
+# Session Data files
+.RData
+.RDataTmp
+
+# User-specific files
+.Ruserdata
+
+# RStudio project files
+*.Rproj
+*.Rproj.user/
+
+# OAuth tokens (if using Google Drive, etc.)
+.httr-oauth
+.secrets
+
+# Temporary files
+*~
+*.tmp
+.Rproj.user
+
+# knitr and R markdown default cache directories
+*_cache/
+/cache/
+*_files/
+
+# R Environment Variables
+.Renviron
+
+# pkgdown site
+docs/
+site/
+
+# ============================================================================
+# OUTPUT FILES (optional - uncomment if you want version control on these)
+# ============================================================================
+# Figures
+# output/figures/*.png
+# output/figures/*.pdf
+# output/figures/*.jpg
+
+# Tables
+# output/tables/*.xlsx
+# output/tables/*.csv
+
+# Or exclude all outputs
+# output/
+# !output/.gitkeep
+
+# ============================================================================
+# OPERATING SYSTEM
+# ============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# ============================================================================
+# RENV (keep renv.lock but exclude library)
+# ============================================================================
+renv/library/
+renv/local/
+renv/cellar/
+renv/lock/
+renv/python/
+renv/sandbox/
+renv/staging/
+
+# Keep these
+!renv.lock
+!renv/activate.R
+!renv/settings.json
+!renv/.gitignore
+
+# ============================================================================
+# BOX SYNC (if applicable)
+# ============================================================================
+.BoxSync/
+*.BoxSynced
+
+# ============================================================================
+# MANUSCRIPT DRAFTS (optional)
+# ============================================================================
+manuscript/drafts/
+*.docx~
+~$*.docx
+
+# ============================================================================
+# LOGS AND TEMPORARY FILES
+# ============================================================================
+*.log
+logs/
+temp/
+tmp/
+
+# ============================================================================
+# IDE AND EDITORS
+# ============================================================================
+# VSCode
+.vscode/
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# ============================================================================
+# ARCHIVES AND BACKUPS
+# ============================================================================
+*.zip
+*.tar.gz
+*.rar
+*.7z
+backup/
+old/
+archive/
+
+# ============================================================================
+# NOTES TO SELF
+# ============================================================================
+# If you want to add notes files that shouldn't be tracked:
+TODO.md
+NOTES.txt
+scratch/

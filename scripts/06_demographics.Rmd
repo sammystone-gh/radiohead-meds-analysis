@@ -1,0 +1,148 @@
+---
+title: "RADIOHEAD meds demographics"
+author: "Sammy Stone"
+date: "2024-09-30"
+output: html_document
+---
+
+Goal: Generate summaries of radiohead demographics for entire cohort + sub-cohorts of interest, then perform chi square test to assess differences 
+
+Data: using the dem_df from radiohead_dfs.Rmd using sub_df with sex column pulled from dem_df (new- 05/14/25)
+
+#Pre-processing
+Load packages
+```{r}
+library(tidyverse)
+library(readr)
+library(writexl)
+library(tableone)
+library(gtsummary)
+```
+
+Establish working directories 
+
+```{r}
+wd <- list()
+wd$main <- file.path("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD")
+wd$data <- file.path(wd$main, "data")
+wd$dataP <- file.path(wd$data, "processed")
+wd$output <- file.path(wd$main, "output_sammy")
+wd$script <- file.path(wd$main, "scripts")
+```
+
+Load data
+```{r}
+sub_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
+sub_df <- sub_df %>%
+  select(-X, "Bronchodilator")
+dem_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_demograpphic_df.csv")
+dem_df <- dem_df %>%
+  select(-X)
+```
+
+Update cancer column to match the multivariable analysis ## ignore in update
+```{r}
+dem_df <- dem_df %>%
+  mutate(Cancer = ifelse(meddra.disease.preferred.name %in% 
+  c("Non-small cell lung cancer", "Malignant melanoma", "Renal cell carcinoma", "Bladder cancer", "Small cell lung cancer"),
+  meddra.disease.preferred.name,
+  "Other")) 
+```
+
+
+##May 2025 Update 
+
+```{r}
+head(dem_df)
+
+sex_col <- dem_df %>%
+  select(record_id, subject.sex) 
+
+head(sex_col)
+nrow(sex_col)
+```
+
+create updated dem df by merging sex column from old dem_df with sub_df
+```{r}
+dem <- left_join(sub_df, sex_col, by = "record_id")
+
+View(dem)
+```
+
+#JUNE 2025 Update
+#pan-cancer vs opioid-- restrict opioids vs cohort without opioids
+
+
+```{r}
+
+dem <- dem %>%
+  mutate(Opioid = factor(Opioid,
+                                levels = c(0, 1),
+                                labels = c("No Opioid Exposure", "Opioid Exposure")))
+# Create a summary table
+comparison_tbl <- dem %>%
+ tbl_summary(
+    include = c(subject.age, subject.sex, cancer_agreggate, stage, polypharmacy, prior.targeted_therapy, subject.metastatic.disease, Treatment),
+    by = Opioid, 
+    missing = "no",
+    label = list(subject.age ~ "Patient Age",
+                 cancer_agreggate ~ "Cancer",
+                 polypharmacy ~ "Cumulative Drug Class Exposures",
+                 stage ~ "Stage",
+                 prior.targeted_therapy ~"Prior Targeted Therapy (Y/N)",
+                 subject.metastatic.disease ~"Metastatic Disease (Y/N)",
+                 subject.sex ~ "Patient Sex")
+  ) %>%
+  add_p() %>%                          
+  bold_p(t = 0.05) %>%                  
+  add_q(method = "bonferroni")         
+
+# Print the table
+comparison_tbl
+    
+```
+
+```{r}
+# Convert to huxtable and write to Excel
+comparison_tbl %>%
+ as_hux_xlsx(file.path(wd$output,"/Demographic Comparisons/opioid_demographics2.xlsx"))
+```
+
+#BB's
+```{r}
+
+dem <- dem %>%
+  mutate(Beta_Blockers = factor(Beta_Blockers,
+                                levels = c(0, 1),
+                                labels = c("No Beta Blocker Exposure", "Beta Blocker Exposure")))
+
+# Create a summary table
+comparison_tbl <- dem %>%
+ tbl_summary(
+    include = c(subject.age, subject.sex, cancer_agreggate, stage, polypharmacy, prior.targeted_therapy, subject.metastatic.disease, Treatment),
+    by = Beta_Blockers, 
+    missing = "no",
+    label = list(subject.age ~ "Patient Age",
+                 cancer_agreggate ~ "Cancer",
+                 polypharmacy ~ "Polypharmacy (continuous)",
+                 stage ~ "Stage",
+                 prior.targeted_therapy ~"Prior Targeted Therapy (Y/N)",
+                 subject.metastatic.disease ~"Metastatic Disease (Y/N)",
+                 subject.sex ~ "Patient Sex")
+  ) %>%
+  add_p() %>%                          
+  bold_p(t = 0.05) %>%                  
+  add_q(method = "bonferroni")         
+
+# Print the table
+comparison_tbl
+    
+```
+
+
+```{r}
+# Convert to huxtable and write to Excel
+comparison_tbl %>%
+ as_hux_xlsx(file.path(wd$output,"bb_demographics2.xlsx"))
+```
+

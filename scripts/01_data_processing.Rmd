@@ -1,0 +1,659 @@
+---
+title: "Radiohead DFs"
+author: "Sammy Stone"
+date: "2024-06-12"
+output: html_document
+embed-resources: true
+---
+
+#### Loading packages
+
+```{r}
+library(here)
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(reshape2)
+library(stringr)
+library(ggvenn)
+library(ggsignif)
+library(dplyr)
+library(readr)
+library(readxl)
+library(ComplexHeatmap)
+library(viridis)
+library(survival)
+library(survminer)
+library(broom)
+library(writexl)
+library(openxlsx)
+```
+
+
+#### Directories
+
+```{r}
+wd <- list()
+wd$main <- "/Users/samanthastone/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD"
+wd$data <- file.path(wd$main, "data")
+wd$dataP <- file.path(wd$data, "processed")
+wd$output <- file.path(wd$main, "output_sammy")
+wd$script <- file.path(wd$main, "scripts_sammy")
+```
+
+#### Load functions-From Zaki
+
+```{r}
+theme_custom <- 
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+# Make first letter capital
+simpleCap <- function(x) {
+  x <- tolower(x)
+  s <- strsplit(x, " ")[[1]]
+  paste(toupper(substring(s, 1,1)), substring(s, 2),
+        sep="", collapse=" ")
+}
+
+
+# https://stackoverflow.com/questions/2261079/how-can-i-trim-leading-and-trailing-white-space
+# Returns string without leading or trailing white space
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
+
+```
+
+# Mergedf-From Zaki
+
+dataframe that combines meds dataframe (per patient harmonized) with clinical information (df clean)
+
+```{r}
+man_h7 <- read_excel("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output/Per_patient_harmonized_round_10.xlsx")
+
+#dat_meta <- read.csv(file.path(wd$dataP, "round2/df.clean152024-05-16.csv"))
+dat_meta <- read.csv(file.path(wd$dataP, "round2/df.clean15.postMS_2024-08-22.csv"))
+head(man_h7)
+head(dat_meta)
+
+df1 <- man_h7 %>%
+  select(record_id, Revised_Classification) %>%
+  mutate(Revised_Classification = gsub("-", "_", Revised_Classification),
+         Revised_Classification = gsub(" ", "_", Revised_Classification))
+  #View(dat_meta)
+```
+
+
+```{r}
+df2 <- dat_meta %>%
+select(subject.id, meddra.disease.preferred.name, os, subject.dead.hospice, subject.age, line.1.therapy, prior.targeted_therapy, subject.metastatic.disease, irae.any, irae.severe, stage)
+  
+# Merge data frames based on record_id and subject.id
+merged_df1 <- left_join(df1, df2, by = c("record_id" = "subject.id"))
+
+head(merged_df1)
+```
+
+
+```{r}
+# Create binary columns for each unique value in Class_1
+unique_Revised_Classification <- unique(df1$Revised_Classification)
+```
+
+```{r}
+# Merge data frames based on record_id and subject.i
+merged_df1 <- left_join(df1, df2, by = c("record_id" = "subject.id")) %>%
+
+  mutate(
+
+    Revised_Classification =
+
+      case_when(Revised_Classification == "NA" ~ NA,
+
+    TRUE ~ Revised_Classification))
+head(merged_df1)
+```
+
+
+
+```{r}
+merged_df <- merged_df1 %>%
+  distinct() %>%
+  mutate(Revised_Classification_present = 1) %>%
+  pivot_wider(names_from = Revised_Classification, values_from = Revised_Classification_present, values_fill = 0)
+
+colnames(merged_df)
+```
+```{r}
+merged_df <- merged_df %>%
+  filter(stage != "NA")
+```
+
+```{r}
+write.csv(merged_df, file.path("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_1070_meds_df.csv"))
+```
+
+
+## Merged df2
+Merged df but with individual Drugs
+```{r}
+man_h7 <- read_excel("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output/Per_patient_harmonized_round_10.xlsx")
+
+dat_meta <- read.csv(file.path(wd$dataP, "round2/df.clean15.postMS_2024-08-22.csv"))
+
+head(man_h7)
+head(dat_meta)
+df1_2 <- man_h7 %>%
+  select(record_id, harmonized_final) %>%
+  mutate(harmonized_final = gsub("-", "_", harmonized_final),
+         harmonized_final = gsub(" ", "_", harmonized_final))
+#df2 from above
+```
+
+```{r}
+# Create binary columns for each unique value in harmonized final
+unique_harmonized_final <- unique(df1_2$harmonized_final)
+
+# Merge data frames based on record_id and subject.id
+
+merged_df2 <- left_join(df1_2, df2, by = c("record_id" = "subject.id")) %>%
+
+  mutate(
+
+    harmonized_final =
+
+      case_when(harmonized_final == "NA" ~ NA,
+
+    TRUE ~ harmonized_final))
+
+head(merged_df2) 
+
+merged_df2 <- merged_df2 %>%
+  distinct() %>%
+  mutate(harmonized_final_present = 1) %>%
+  pivot_wider(names_from = harmonized_final, values_from = harmonized_final_present, values_fill = 0)
+colnames(merged_df2) 
+
+```
+individual drugs 
+```{r}
+merged2_filt <- merged_df2 %>%
+    filter(!(stage == "UNK"))%>%
+ filter(!is.na(subject.dead.hospice)) 
+
+merged2_stage <- merged2_filt %>%
+    mutate(stage2 = case_when(
+    stage %in% c("0","i", "ii") ~"0-ii",
+    TRUE ~ stage)) 
+
+merged2_stage2 <- merged2_stage %>%
+  select(-c("stage", "irae.any", "irae.severe"))
+
+individual_with_stage <- merged2_stage2 %>%
+  rename(stage = stage2)
+```
+
+
+```{r}
+merged2_update <- merged2_stage2 %>%
+  rename(stage = stage2)
+```
+
+```{r}
+individual_drugs <- merged2_update %>%
+mutate(Treatment = case_when(
+    line.1.therapy == "chemo+pd1-pdl1" ~ "chemo+ICI",
+    line.1.therapy == "chemo+ctla4+pd1-pdl1" ~ "chemo+ICI",
+    TRUE ~ line.1.therapy))
+```
+
+```{r}
+individual_drugs <- individual_drugs %>%
+  mutate(cancer_agreggate = ifelse(meddra.disease.preferred.name %in% 
+c("Non-small cell lung cancer", "Malignant melanoma", "Renal cell carcinoma", "Bladder cancer", "Small cell lung cancer"),
+meddra.disease.preferred.name,
+"Other"))
+```
+
+```{r}
+write.csv(individual_drugs, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/individual_drugs_df.csv", row.names = FALSE)
+```
+
+#Cohort Df
+Merged_df patients with no missing death event (subject.dead.hospice)
+1028 patients in newest df update
+```{r}
+cohort <- merged_df %>%
+  filter(!is.na(subject.dead.hospice))
+nrow(cohort)
+```
+
+#Corticosteroid DF
+Create corticosteroid column with corticosteroids unclear + corticosteroids systemic combined
+```{r}
+merged_w_cort <- cohort %>%
+  mutate(Corticosteroids = if_else(Corticosteroid_systemic == 1 | Corticosteroid_unclear == 1, 1, 0))
+
+#View(merged_w_cort)
+
+#check
+table(merged_w_cort$Corticosteroid_systemic, merged_w_cort$Corticosteroid_unclear, merged_w_cort$Corticosteroids)
+```
+
+#Systemic DF
+filter out drug classes we're not interested in 
+```{r}
+#filter out drug classes we're not interested in--no vitamins/supplements or non systemic drugs
+
+systemic_df <-  merged_w_cort %>%
+         select(-c("Vitamin", "NA", "Drop_NA", "Supplement", "Cancer", "Anesthetic_non_systemic", "Anti_glaucoma_non_systemic", "Cholinergic_non_systemic", "Mast_cell_stabilizer_non_systemic", "Supplement_non_systemic", "Antibiotics_non_systemic", "Corticosteroid_inhaled", "Anti_histamine_non_systemic", "Decongestant_non_systemic", "Anti_histamine_non_systemic", "Corticosteroid_non_systemic", "Anti_fungal_non_systemic"))
+```
+
+```{r}
+#save for later
+write.csv(systemic_df, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_systemicdrugs.csv", row.names = FALSE)
+```
+
+#Polypharmacydf
+```{r}
+polypharmacydf <- systemic_df %>%
+  select(-c("Cannabinoid", "Bronchodilator", "Corticosteroid_unclear", "Corticosteroids"))
+```
+
+```{r}
+#to return these columns later: 
+
+excluded_df <- systemic_df %>%
+  select(record_id, Cannabinoid, Bronchodilator, Corticosteroid_unclear, Corticosteroids)
+```
+
+Create polypharmacy column
+
+```{r}
+polydf <- polypharmacydf %>%
+  mutate(polypharmacy = rowSums(polypharmacydf[12:81]))
+```
+
+drugs used in polypharmacy calculation
+```{r}
+polypharmacy_drugclasses <- as.data.frame(names(polypharmacydf[12:81]))
+
+colnames(polypharmacy_drugclasses) <- "DrugClass" 
+
+View(polypharmacy_drugclasses) 
+
+filepath <- file.path(wd$output, "Table_S2.xlsx")
+
+#write.xlsx(polypharmacy_drugclasses, filepath)
+```
+
+```{r}
+#binary polypharmacy column 
+polydf$polypharmacy_binary <- polydf$polypharmacy >= 5
+```
+save polypharmacy_df 
+
+```{r}
+write.csv(polydf, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_polypharmacy_df.csv")
+```
+#Sub-Class DF
+Incorporating Sub Classes 
+
+Using merged_df2, we'll identify relevant sub-classes from individual medications. Then we'll merge with merged_df
+
+1. Assign classes- see RADIOHEAD top ten meds sub classes.xlsx for details
+
+
+```{r}
+#mental health
+benzodiazepines <- c("Clonazepam", "Alprazolam", "Lorazepam", "Diazepam", "Temazepam", "Chlordiazepoxide", "Clobazam")
+
+ssris <- c("Escitalopram", "Citalopram", "Fluoxetine", "Paroxetine", "Sertraline")
+
+tcas <- c("Amitriptyline", "Nortriptyline", "Doxepin") 
+
+atypicals <- c("Bupropion", "Mirtazapine", "Buspirone")
+  
+snris <- c("Duloxetine", "Venlafaxine", "Desvenlafexine")
+
+#cardiovascular
+
+beta_blockers <- c("Metoprolol", "Carvedilol", "Atenolol", "Propranolol", "Sotalol", 
+                   "Nebivolol", "Nadolol", "Labetalol", "Bisoprolol")
+
+anti_arrythmics <- c("Amiodarone", "Flecainide", "Dofetilide", 
+                      "Mexiletine", "Propafenone")
+
+ACEi_ARB <- c("Lisinopril", "Enalapril", "Benazepril", "Ramipril", "Quinapril",
+          "Fosinopril", "Perindopril", "Trandolapril", "Losartan", "Valsartan", "Irbesartan", "Olmesartan", "Candesartan", "Azilsartan","Telmisartan")
+
+cc_blockers <- c("Amlodipine", "Diltiazem", "Nifedipine", "Felodipine", "Verapamil")
+  
+  
+#Cholesterol Lowing
+statins <- c("Atorvastatin","Simvastatin", "Rosuvastatin", "Pravastatin", "Lovastatin", "Fluvastatin")
+
+fibrates <- c("Gemfibrozil", "Fenofibrate")
+
+#Diabetes
+
+dppi_4i <- c("Sitagliptin", "Linagliptin", "Alogliptin", "Saxagliptin") 
+
+sulfonylurea <- c("Glipizide", "Glimepiride", "Glyburide", "Glibenclamide")
+
+glp_1 <- c("Liraglutide", "Dulaglutide", "Exenatide", "Semaglutide")
+
+#Anti-pyretic
+
+nsaid <- c("NSAID", "Ibuprofen", "Naproxen", "Meloxicam", "Diclofenac", "Celecoxib", "Indomethacin", 
+           "Ketorolac", "Nabumetone", "Nepafenac")
+
+#bronchodilator 
+
+b2_ag <- c("Vilanterol", "Formoterol", "Arformoterol", "Olodaterol", "Salmeterol", "Albuterol", "Levosalbutamol", "Levalbuterol")
+  
+anti_cholinergic <- c("Umeclidinium", "Tiotropium") 
+
+#anti-emetic
+
+sert_atg <- c("Ondansetron", "Granisetron", "Palonosetron")
+
+dopamine_atg <- c("Prochlorperazine", "Promethazine") 
+
+#Anti-coagulants
+
+DOAC <- c("Apixaban", "Rivaroxaban", "Dabigatran")
+
+anti_platelet <- c("Aspirin", "Clopidogrel", "Cilostazol", "Ticagrelor", "Prasugrel", "Dipyridamole")
+
+heparin_LMWH <- c("Enoxaparin", "Heparin", "Dalteparin", "Fondaparinux")
+```
+
+2. Incorporate subclasses in merged_df2
+```{r}
+subdf <- merged_df2 %>%
+  mutate(Benzodiazepines = ifelse(rowSums(select(., all_of(benzodiazepines))) > 0, 1, 0),
+        SSRIs = ifelse(rowSums(select(., all_of(ssris))) > 0, 1, 0),
+        TCAs = ifelse(rowSums(select(., all_of(tcas))) > 0, 1, 0),
+        #Atypicals = ifelse(rowSums(select(., all_of(atypicals))) > 0, 1, 0), 
+        #SNRIs = ifelse(rowSums(select(., all_of(snris))) > 0, 1, 0),
+        Beta_Blockers = ifelse(rowSums(select(., all_of(beta_blockers))) > 0, 1, 0),
+        ACEi_ARB = ifelse(rowSums(select(., all_of(ACEi_ARB))) > 0, 1, 0),
+        #Anti_Arrythmics = ifelse(rowSums(select(., all_of(anti_arrythmics))) > 0, 1, 0),
+        #Sulfonylurea = ifelse(rowSums(select(., all_of(sulfonylurea))) > 0, 1, 0),
+        NSAIDs = ifelse(rowSums(select(., all_of(nsaid))) > 0, 1, 0),
+        #B2_ag = ifelse(rowSums(select(., all_of(b2_ag))) > 0, 1, 0),
+        #MA_antag = ifelse(rowSums(select(., all_of(anti_cholinergic))) > 0, 1, 0),
+        #Sert_atg = ifelse(rowSums(select(., all_of(sert_atg))) > 0, 1, 0),
+        #Dopamine_atg = ifelse(rowSums(select(., all_of(dopamine_atg))) > 0, 1, 0),
+        #GLP_1 = ifelse(rowSums(select(., all_of(glp_1))) > 0, 1, 0),
+        #DPPI_4i = ifelse(rowSums(select(., all_of(dppi_4i))) > 0, 1, 0),
+        #Fibrates = ifelse(rowSums(select(., all_of(fibrates))) > 0, 1, 0),
+        CC_blockers = ifelse(rowSums(select(., all_of(cc_blockers))) > 0, 1, 0),
+        #DOACs = ifelse(rowSums(select(., all_of(DOAC))) > 0, 1, 0),
+        #Anti_platelet = ifelse(rowSums(select(., all_of(anti_platelet))) > 0, 1, 0),
+        Statin = ifelse(rowSums(select(., all_of(statins))) > 0, 1, 0))
+        #Heparin_LMWH = ifelse(rowSums(select(., all_of(heparin_LMWH))) > 0, 1, 0))
+        
+        
+```
+
+3. remove non subclass columns from subdf
+
+```{r}
+##only subclass script below
+#indv_drug_col <- names(subdf)[2:558 ]
+
+#subdf <- subdf %>%
+  #select(-all_of(indv_drug_col)) 
+
+##including lorazepam and diazepam
+
+subdf <- subdf %>%
+  select(-c(2:558))
+
+colnames(subdf)
+```
+
+6. merge subdf with all med classes (use polydf or systemic_df from radiohead univariate plot.rmd)
+
+```{r}
+cohortsub <- left_join(polydf, subdf, by = "record_id") 
+```
+7. remove na, vitamins, and supplements columns for analyses- already done in systemic_df
+
+Sanity check 
+
+```{r}
+#colSums(scdf[, 100:121])
+colnames(cohortsub)
+```
+save this as a df for reproducibility 
+```{r}
+write.csv(cohortsub, "RADIOHEAD_subclasses.csv")
+```
+
+#multivariate DF and univariate analysis df 
+using cohortsub from radiohead sub classes 
+
+```{r}
+#first combine cancer stages 0-1
+cohortsub <- cohortsub %>%
+  mutate(stage2 = case_when(
+    stage %in% c("0","i", "ii") ~"0-ii",
+    TRUE ~ stage))
+
+```
+
+```{r}
+#remove columns not included in analysis
+cohortstage <- cohortsub %>%
+  select(-c("stage", "irae.any", "irae.severe", "polypharmacy_binary")) %>%
+  rename(stage = stage2)
+```
+
+```{r}
+#reorder df to put polypharmacy at the top, add back in columns omitted from polypharmacy calculation, then get drug class counts 
+
+cohort_ordered <- cohortstage %>%
+  select(1:8, stage, polypharmacy, 9:88)
+```
+
+```{r}
+poly_cohort <- left_join(cohort_ordered, excluded_df, by = "record_id")
+```
+
+restrict df to drug classes with at least 50 patients on them
+```{r}
+colsums <- colSums(poly_cohort[11:92])
+
+sub <- names(colsums[colsums >= 50])
+
+sub_df <- poly_cohort %>%
+ select(1:10, all_of(sub))
+```
+
+exclude patients where stage = UNK 
+
+```{r}
+sub_df <- sub_df %>% 
+  filter(!(stage == "UNK"))
+
+```
+now have 1024 patients for use in multivariate analysis 
+
+combine treatments: 
+
+```{r}
+sub_df <- sub_df %>%
+  mutate(Treatment = case_when(
+    line.1.therapy == "chemo+pd1-pdl1" ~ "chemo+ICI",
+    line.1.therapy == "chemo+ctla4+pd1-pdl1" ~ "chemo+ICI",
+    TRUE ~ line.1.therapy))
+
+unique(sub_df$Treatment) 
+```
+
+checks
+```{r}
+check_df <- sub_df %>%
+  select(record_id, Treatment, line.1.therapy)
+View(check_df)
+```
+
+```{r}
+sub_df <- sub_df %>%
+  select(-line.1.therapy)
+```
+
+```{r}
+#add new cancer column + sub-class column 
+sub_df <- sub_df %>%
+mutate(cancer_agreggate = ifelse(meddra.disease.preferred.name %in% 
+c("Non-small cell lung cancer", "Malignant melanoma", "Renal cell carcinoma", "Bladder cancer", "Small cell lung cancer"),
+meddra.disease.preferred.name,
+"Other"))
+```
+
+reorder columns 
+```{r}
+sub_df <- sub_df %>%
+  select(1:5, Treatment, cancer_agreggate, 6:42)
+head(sub_df)
+colnames(sub_df)
+```
+
+
+########################
+This is the main dataframe for distribution
+```{r}
+write.csv(sub_df, file = "RADIOHEAD_multivariate_df.csv")
+```
+####################### 
+
+#let's add irae data into systemic_df 
+
+```{r}
+irae_cols <- dat_meta %>%
+  select(subject.id, 95:111)
+```
+
+```{r}
+irae_df <- left_join(systemic_df, irae_cols, by = c("record_id" = "subject.id"))
+```
+
+or into polydf
+
+```{r}
+irae_df2 <- left_join(polydf, irae_cols, by = c("record_id" = "subject.id"))
+```
+
+
+
+##ICI only dataframe 
+(from systemic_df, 
+
+```{r}
+ici_df <- systemic_df %>%
+  filter(!line.1.therapy %in% c("chemo+pd1-pdl1", "chemo+ctla4+pd1-pdl1"))
+```
+sanity checks:
+```{r}
+table(ici_df$line.1.therapy)
+nrow(ici_df) #removed 229 pts
+```
+
+
+
+#Demographic DF
+
+```{r}
+#import additional information from dat_meta 
+df3 <- dat_meta %>%
+select(subject.id, subject.sex, subject.ethnicity, subject.race, stage, meddra.disease.preferred.name, os, subject.dead.hospice, subject.age, line.1.group, line.1.therapy, prior.targeted_therapy, subject.metastatic.disease, irae.any, irae.severe)
+  
+# Merge data frames based on record_id and subject.id
+dem_df <- left_join(df1, df3, by = c("record_id" = "subject.id"))
+
+head(dem_df)
+```
+
+```{r}
+# Create binary columns for each unique value in Class_1
+unique_Revised_Classification <- unique(df1$Revised_Classification)
+
+# Merge data frames based on record_id and subject.i
+dem_df <- left_join(df1, df3, by = c("record_id" = "subject.id")) %>%
+
+  mutate(
+
+    Revised_Classification =
+
+      case_when(Revised_Classification == "NA" ~ NA,
+
+    TRUE ~ Revised_Classification))
+head(dem_df)
+
+dem_df <- dem_df %>%
+  distinct() %>%
+  mutate(Revised_Classification_present = 1) %>%
+  pivot_wider(names_from = Revised_Classification, values_from = Revised_Classification_present, values_fill = 0)
+
+colnames(dem_df)
+```
+```{r}
+#restrict to pt cohort
+dem_df <- dem_df %>%
+  filter(!is.na(subject.dead.hospice)) %>%
+  filter(!(stage == "UNK"))
+
+nrow(dem_df)
+```
+
+Create corticosteroid column with corticosteroids unclear + corticosteroids systemic 
+
+```{r}
+dem_df <- dem_df %>%
+  mutate(Corticosteroids = if_else(Corticosteroid_systemic == 1 | Corticosteroid_unclear == 1, 1, 0))
+```
+
+```{r}
+#restrict to only columns of interest 
+#col <- names(dem_df)
+#dem_df <- dem_df %>%
+  #select(c(col[1:15],"Opioid", "Corticosteroids", "Anti_anxiety", "Thyroid", "Diuretic", "Laxative", "Anti_emetic"))
+```
+
+```{r}
+#remove non systemic/supplement columns 
+dem_df <- dem_df %>%
+  select(- c("Vitamin", "Supplement", "Acid_suppression", "Drop_NA", "Cancer", "Anti_glaucoma_non_systemic", "Corticosteroid_non_systemic", "Anti_fungal_non_systemic", "Anesthetic_non_systemic", "Anti_histamine_non_systemic", "NA", "Antibiotics_non_systemic", "Cannabinoid", "Decongestant_non_systemic", "Mast_cell_stabilizer_non_systemic", "Cholinergic_non_systemic", "Bronchodilator"))
+```
+
+```{r}
+colnames(dem_df)
+```
+
+```{r}
+#restrict to drug classes w/ at least 50 patients
+colsums <- colSums(dem_df[16:87])
+
+ov50 <- names(colsums[colsums >= 50])
+
+dem_df <-dem_df %>%
+  select(1:16, all_of(ov50))
+
+colnames(dem_df)
+```
+```{r}
+write.csv(dem_df, file.path("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_demograpphic_df.csv"))
+```
+
+
+trim to just opioids 
+```{r}
+opioid_dems <- dem_df %>%
+  select(1:13, "Opioid")
+```
+
+
+

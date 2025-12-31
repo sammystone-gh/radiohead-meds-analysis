@@ -1,0 +1,1019 @@
+---
+title: "multivariate and univariate RADIOHEAD drug analysis"
+author: "Sammy Stone"
+date: "2024-07-31"
+output:
+  word_document: default
+  html_document: default
+---
+
+Multivariate and Univariate analysis of top drug classes on radiohead pt survival
+
+Goal: Create multivariate tables for manuscript by using gtsummary to tabulate multivariate and univariate regresson analyses 
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(survival)
+library(gtsummary)
+library(readr)
+library(survminer)
+library(ggplot2)
+library(readxl)
+library(broom)
+library(openxlsx)
+library(writexl)
+library(patchwork)
+
+
+```
+
+#### Directories
+
+```{r}
+wd <- list()
+wd$main <- "/Users/samanthastone/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD"
+wd$data <- file.path(wd$main, "data")
+wd$dataP <- file.path(wd$data, "processed")
+wd$output <- file.path(wd$main, "output_sammy")
+wd$script <- file.path(wd$main, "scripts_sammy")
+```
+
+#Load
+```{r}
+sub_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
+```
+
+#(50+) w/ sub classes of interest and stage and polypharmacy
+
+using sub_df from Radiohead_dfs.Rmd (file with polypharmacy, and drugs + sub classes of interest with at least 50 patients)
+
+```{r}
+dat <- sub_df %>%
+  select(-"X", -"Bronchodilator")
+
+#verify no NA patients 
+d1 = dat %>% filter(!is.na(subject.dead.hospice))
+```
+
+
+##Step 1: Multivariate Table
+
+```{r}
+# Relevel the covariates
+d1$Treatment <- relevel(factor(d1$Treatment), ref = "pd1-pdl1")
+d1$cancer_agreggate <- relevel(factor(d1$cancer_agreggate), ref = "Non-small cell lung cancer")
+d1$stage <- relevel(factor(d1$stage), ref = "iv")
+
+# List of baseline covariates
+base_covariates <- c("subject.age", "prior.targeted_therapy", "subject.metastatic.disease", "Treatment", "cancer_agreggate", "stage")
+
+# Initialize a list to store the results for each drug class
+cox_results <- list()
+
+# Loop through drug classes 
+drug_class_columns <- names(d1)[11:41]
+
+for (drug_class in drug_class_columns) {
+  
+   # Fit the Cox proportional hazards model with covariates and the drug class
+  formula_str <- paste0("Surv(os, subject.dead.hospice) ~ ", 
+                        paste(base_covariates, collapse = " + "), " + ", drug_class)
+  
+  fit <- coxph(as.formula(formula_str), data = d1)
+  
+  # Summarize only the drug class in the table output (suppress the base covariates)
+  tbl <- tbl_regression(fit, exponentiate = TRUE) %>%
+    modify_table_body(~ .x %>%
+      filter(variable == drug_class)) %>%
+    modify_header(label = paste0("Drug Class: ", drug_class))
+  
+# Count the number of patients with a value of 1 in the covariate column
+   count <- sum(d1[[drug_class]] == 1, na.rm = TRUE)
+   
+# Add the count as a new column in the table
+  tbl <- tbl %>%
+    modify_table_body(~ .x %>%
+      mutate(Count = count)) %>%
+    modify_header(Count = "**Count**")  # Add the count to the header
+   
+  # Store the results
+  cox_results[[drug_class]] <- tbl
+}
+
+##Sorting by counts##
+# Create a dataframe for sorting based on counts
+drug_counts <- data.frame(Drug = drug_class_columns, Count = sapply(drug_class_columns, function(dc) sum(d1[[dc]] == 1, na.rm = TRUE)))
+
+# Sort the drug counts in descending order
+drug_counts <- drug_counts[order(-drug_counts$Count),]
+
+# Reorder the cox_results based on sorted drug counts
+cox_results <- cox_results[match(drug_counts$Drug, names(cox_results))] 
+
+# Create a stacked gtsummary table
+final_table <- tbl_stack(cox_results) %>%
+   modify_header(label = "Drug Class")
+
+#bold the p's
+final_table <- final_table %>%
+  bold_p(t = 0.05)  
+
+# Print the final table
+final_table
+
+##the count here is a bit redundant should streamline
+```
+
+###Add BH correction
+```{r}
+#Extract p-values 
+p_values <- final_table$table_body$p.value 
+
+#Perform BH correction
+q_values <- p.adjust(p_values, method = "BH")
+
+# Format q-values using gtsummary's style_pvalue()
+q_values <- style_pvalue(q_values)
+
+#Add to table 
+final_table <- final_table %>% 
+  modify_table_body(~ .x %>%
+  mutate(`Q-value` = q_values)) %>%
+  modify_header(`Q-value` = "**q-value**")
+
+print(final_table)
+  
+```
+```{r}
+ov5 <- sub_df %>%
+  filter(polypharmacy >= 5)
+nrow(ov5)
+```
+
+##Step 2: Univariate Table
+```{r}
+# Initialize a list to store the results for each drug class in univariate analysis
+uv_results <- list()
+
+# Loop through each drug class for univariate analysis
+for (drug_class in drug_class_columns) {
+  
+  # Fit a univariate Cox proportional hazards model for each drug class
+  formula_uv <- as.formula(paste0("Surv(os, subject.dead.hospice) ~ `", drug_class, "`"))
+  fit_uv <- coxph(formula_uv, data = d1)
+  
+  # Create a table summarizing the results for the univariate analysis
+  tbl_uv <- tbl_regression(fit_uv, exponentiate = TRUE) %>%
+     modify_header(label = "Covariate") %>%
+    modify_table_body(~ .x %>% mutate(variable = drug_class))  # Ensure the correct drug class name appears
+  
+  # Store the univariate result
+  uv_results[[drug_class]] <- tbl_uv
+}
+# Use the drug counts to reorder the univariate results
+uv_results_ordered <- uv_results[match(drug_counts$Drug, names(uv_results))]
+
+# Combine all univariate tables into a single table after reordering
+univariate_table <- tbl_stack(uv_results_ordered)
+
+#bold the p's
+univariate_table <- univariate_table %>%
+  bold_p(t = 0.05)  
+
+# Print the final univariate table
+univariate_table
+
+```
+
+
+##Merge Tables
+
+```{r}
+# Merging the two tables with headers
+merged_table <- tbl_merge(
+  tbls = list(univariate_table, final_table),
+  tab_spanner = c("**Univariate**", "**Multivariate**")
+)
+
+# Print the merged table
+merged_table %>% as_gt() %>% gt::tab_options(table.font.names = "Arial")
+```
+
+##Export results
+Write excel file with results output
+```{r}
+# Convert to huxtable and write to Excel
+#merged_table %>%
+ #as_hux_xlsx(file.path(wd$output,"RADIOHEADMultivariateTable.xlsx"))
+```
+
+
+#Multivariate with significant drugs in the same model
+
+```{r} 
+d1 <- dat %>%
+  select(record_id, os, subject.dead.hospice, subject.age, prior.targeted_therapy, subject.metastatic.disease, Treatment, cancer_agreggate,stage, Opioid, Corticosteroid_systemic, Beta_Blockers, Diuretic, Laxative, Anti_emetic, Benzodiazepines)
+         
+# Relevel the covariates
+d1$Treatment <- relevel(factor(d1$Treatment), ref = "pd1-pdl1")
+d1$cancer_agreggate <- relevel(factor(d1$cancer_agreggate), ref = "Non-small cell lung cancer")
+d1$stage <- relevel(factor(d1$stage), ref = "iv")
+```
+
+```{r}
+# Create the formula
+formula <- paste0("Surv(os, subject.dead.hospice) ~ ", 
+                  paste(colnames(d1)[-(1:3)], collapse = "+"))
+
+# Fit the Cox model
+fit <- coxph(as.formula(formula), data = d1)
+
+# Get the summary of the Cox model
+summary_fit <- summary(fit)
+
+# Print the results as a gtsummary table
+gt_table <- tbl_regression(fit)
+gt_table2 <-tbl_regression(fit, exponentiate = TRUE)
+print(gt_table)
+print(gt_table2)
+
+```
+
+```{r}
+# Convert to huxtable and write to Excel
+#gt_table %>%
+ #as_hux_xlsx(file.path(wd$output,"combinedmultivariate_nopoly.xlsx"))
+
+#gt_table2 %>%
+# as_hux_xlsx(file.path(wd$output,"combinedmultivariate2_nopoly.xlsx"))
+```
+
+forest plot
+```{r}
+#convert model output to a tibble format using broom package
+output <- tidy(fit, conf.int = TRUE)
+#View(output)
+
+#filter to only include variables we want visualized
+c_forest <- output %>%
+  filter(term %in% c("Opioid", "Corticosteroid_systemic", "Beta_Blockers", "Diuretic", "Laxative", "Anti_emetic", "Benzodiazepines"))
+View(c_forest)
+```
+
+#visualize output via forest plot for figure 2 
+```{r} 
+#change names for visualization
+c_forest <- c_forest %>%
+  mutate(term = factor(case_when(
+    term == "Opioid" ~ "Opioids",
+    term == "Anti_emetic" ~ "Anti-emetics",
+    term == "Diuretic" ~ "Diuretics", 
+    term == "Corticosteroid_systemic" ~ "Corticosteroids (systemic)",
+    term == "Beta_Blockers" ~ "Beta-blockers",
+    term == "Laxative" ~ "Laxatives",
+    TRUE ~ term))) %>%
+  arrange(desc(estimate)) %>%
+  mutate(term = factor(term, levels = rev(term))) #sort by ascending hazard ratios
+
+#View(c_forest) 
+
+```
+
+
+```{r} 
+forest_plot <- ggplot(c_forest, aes(x = estimate, y = term)) +
+  geom_point(size = 3, color = "deepskyblue") +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, color = "deepskyblue") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "darkgrey") +
+  scale_x_continuous(name = "Log Hazard Ratio", 
+                     breaks = scales::pretty_breaks(), 
+                     limits = c(-0.2, 1)) + # Set limits for x-axis
+  scale_y_discrete(name = "") +
+  theme_minimal(base_size = 22) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.text.y = element_text(size = 25, color = "black"),
+    axis.text.x = element_text(size = 25))
+
+print(forest_plot)
+    
+    #add p-values
+```
+```{r}
+#create p-value plot 
+ps <- ggplot(c_forest, aes(x = 0, y = term,
+            label = ifelse(p.value <0.001, "p < 0.001", sprintf("p = %.3f", p.value)))) +
+   geom_text(
+    aes(fontface = ifelse(p.value < 0.05, "bold", "plain")),  # Bold if p < 0.05
+    hjust = 0, 
+    size = 8
+  ) +
+  theme_void() +  # Removes background grid and axes
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = margin(0, 0, 0, 10))  # Adjust right margin to give space for the labels
+print(ps)
+
+```
+
+```{r}
+#Combine plots 
+# Define the layout 
+layout <- c(
+  area(t = 0, l = 0, b = 30, r = 14),  # Left plot (forest_plot), takes up the full height and 11 units of width
+  area(t = 0, l = 12, b = 30, r = 18)   # Right plot (ps), positioned next to the left plot, with 2 units of width
+)
+f1 <- forest_plot + ps + plot_layout(design = layout)
+print(f1)
+```
+```{r}
+ggsave(file.path(wd$output, "Forest_plot_1updated.png"), plot = f1, width = 12, height = 6, dpi = 300)
+```
+
+##############################################################################################################
+Check vifs: (to confirm these drug classes can be used in the same model)
+
+```{r}
+library(car)
+# Create a linear model with the variables
+model <- lm(Opioid ~ polypharmacy + Corticosteroid_systemic + Beta_Blockers + Diuretic + Laxative + Anti_emetic + Benzodiazepines + prior.targeted_therapy + stage + Treatment, data = sub_df)
+
+# Calculate the VIF for this model
+vif(model)
+
+```
+
+```{r}
+# Check correlation between variables
+cor(sub_df$Opioid, sub_df$polypharmacy)
+```
+
+########################################################################################
+
+#Multivariate with opioids and palliative care interaction
+
+first- create palliative care column 
+
+```{r}
+paldrugs <- c("Laxative", "Benzodiazepines", "Anti_emetic")
+pall_df <- sub_df %>%
+  mutate(palliative_drugs = ifelse(rowSums(across(all_of(paldrugs))) > 0, 1, 0))
+write.csv(pall_df, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/palliativebundledf.csv", row.names = FALSE)
+```
+sanity check
+```{r}
+palcheck <- pall_df %>%
+  select(record_id, all_of(paldrugs), palliative_drugs)
+```
+looks good
+
+now multivariate with palliative drugs + opioids
+```{r}
+dat <- pall_df
+
+d1 <- dat %>%
+  select(record_id, os, subject.dead.hospice, subject.age, prior.targeted_therapy, subject.metastatic.disease,  Treatment, cancer_agreggate, stage,  Opioid, palliative_drugs)
+         
+# Relevel the covariates
+d1$Treatment <- relevel(factor(d1$Treatment), ref = "pd1-pdl1")
+d1$cancer_agreggate <- relevel(factor(d1$cancer_agreggate), ref = "Non-small cell lung cancer")
+d1$stage <- relevel(factor(d1$stage), ref = "iv")
+
+```
+
+```{r}
+# Create the formula
+formula <- paste0("Surv(os, subject.dead.hospice) ~ ", 
+                  paste(colnames(d1)[-(1:3)], collapse = "+"))
+
+# Fit the Cox model
+fit <- coxph(as.formula(formula), data = d1)
+
+# Get the summary of the Cox model
+summary_fit <- summary(fit)
+
+# Print the results as a gtsummary table
+gt_table <- tbl_regression(fit)
+print(gt_table)
+```
+
+
+```{r}
+# Convert to huxtable and write to Excel
+#gt_table %>%
+# as_hux_xlsx(file.path(wd$output,"Opioids_palliative_combined.xlsx"))
+```
+
+now with interaction term 
+
+```{r}
+# Create the formula with interaction term 
+formula <- paste0("Surv(os, subject.dead.hospice) ~ ", 
+                  paste(colnames(d1)[-(1:3)], collapse = "+"),
+                  " + Opioid:palliative_drugs")
+
+# Fit the Cox model
+fit <- coxph(as.formula(formula), data = d1)
+
+# Get the summary of the Cox model
+summary_fit <- summary(fit)
+
+# Print the results as a gtsummary table
+gt_table <- tbl_regression(fit)
+
+#Calculate counts for each term 
+opioid_count <- sum(d1$Opioid == 1, na.rm = TRUE)
+palliative_count <- sum(d1$palliative_drugs == 1, na.rm = TRUE)
+interaction_count <- sum(d1$Opioid == 1 & d1$palliative_drugs == 1, na.rm = TRUE)
+
+interaction_counts <- c(
+  Opioid = opioid_count,
+  pallative_drugs = palliative_count,
+  interaction = interaction_count) 
+print(interaction_counts) 
+
+gt_table2 <-tbl_regression(fit, exponentiate = TRUE)
+#add these manually 
+
+print(gt_table)
+print(gt_table2)
+```
+
+```{r}
+# Convert to huxtable and write to Excel
+#gt_table %>%
+ #as_hux_xlsx(file.path(wd$output,"Opioids_palliative_interaction.xlsx"))
+# Convert to huxtable and write to Excel
+#gt_table2 %>%
+ #as_hux_xlsx(file.path(wd$output,"Opioids_palliative_interaction2.xlsx"))
+```
+
+
+forest plot
+```{r}
+#convert model output to a tibble format using broom package
+output2 <- tidy(fit, conf.int = TRUE)
+#View(output)
+
+#filter to only include variables we want visualized
+o_forest <- output2 %>%
+  filter(term %in% c( "Opioid", "palliative_drugs", "Opioid:palliative_drugs"))
+View(o_forest)
+```
+
+#visualize output via forest plot for figure 4
+```{r} 
+#change names for visualization
+o_forest <- o_forest %>%
+  mutate(term = factor(case_when(
+    term == "Opioid" ~ "Opioids",
+    term == "palliative_drugs" ~ "Palliative Bundle",
+    term == "Opioid:palliative_drugs" ~ "Opioids * Palliative Bundle",
+    TRUE ~ term))) %>%
+  arrange(desc(estimate)) %>%
+  mutate(term = factor(term, levels = rev(term)))#sort by ascending hazard ratios
+
+View(o_forest) 
+
+```
+
+
+```{r} 
+forest_plot2 <- ggplot(o_forest, aes(x = estimate, y = term)) +
+  geom_point(size = 3, color = "orange") +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, color = "orange") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "darkgrey") +
+  scale_x_continuous(name = "Log Hazard Ratio", 
+                     breaks = scales::pretty_breaks(), 
+                     limits = c(-0.5, 1)) + # Set limits for x-axis
+  scale_y_discrete(name = "") +
+  theme_minimal(base_size = 22) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.text.y = element_text(size = 25, color = "black"),
+    axis.text.x = element_text(size = 25))
+
+print(forest_plot2)
+```
+add p-values
+```{r}
+#create p-value plot 
+p2 <- ggplot(o_forest, aes(x = 0, y = term,
+            label = ifelse(p.value <0.001, "p < 0.001", sprintf("p = %.3f", p.value)))) +
+   geom_text(
+    aes(fontface = ifelse(p.value < 0.05, "bold", "plain")),  # Bold if p < 0.05
+    hjust = 0, 
+    size = 8
+  ) +
+  theme_void() +  
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = margin(0, 0, 0, 10))  # Adjust right margin to give space for the labels
+print(p2)
+
+```
+
+```{r}
+#Combine plots 
+# Define the layout 
+layout <- c(
+  area(t = 0, l = 0, b = 20, r = 12),  # Left plot (forest_plot), takes up the full height and 11 units of width
+  area(t = 0, l = 11, b = 20, r = 16)   # Right plot (ps), positioned next to the left plot, with 2 units of width
+)
+f2 <- forest_plot2 + p2 + plot_layout(design = layout)
+print(f2)
+```
+
+```{r}
+ggsave(file.path(wd$output, "Forest_plot_2.png"), plot = f2, width = 12, height = 6, dpi = 300)
+```
+
+## Individual drug multivariate
+using individual_drugs from radiohead_dfs
+
+```{r}
+individual_drugs <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/individual_drugs_df.csv")
+```
+
+```{r}
+colnames(individual_drugs)
+```
+
+```{r}
+#first filter to drugs w/ at least 20 patients on them 
+colsums2 <- colSums(individual_drugs[9:554])
+
+sub2 <- names(colsums2[colsums2 >= 20])
+
+indiv_drugs <- individual_drugs %>%
+ select(1:10, 555:558, all_of(sub2))
+```
+
+```{r}
+colnames(indiv_drugs)
+```
+
+```{r}
+#remove supplements etc
+i_drugs <- indiv_drugs %>%
+  select(-"Iron", -"Folic_Acid", -"Multivitamin", -"Omega_3_Fatty_Acids", -"Vitamin_B12", -"Vitamin_C", -"Melatonin", -"Coenzyme_Q10", 
+         -"Vitamin_B_Complex", -"No_meds", -"Potassium", -"Vitamin_D", -"Calcium", -"Probiotic", -"Magnesium", -"Glucosamine", -"Formoterol", -"Ipratropium", -"Albuterol", -"Vilanterol", -"Umeclidinium", -"Tiotropium")
+colnames(i_drugs)
+```
+
+```{r}
+d1 <- i_drugs
+# Relevel the covariates
+d1$Treatment <- relevel(factor(d1$Treatment), ref = "pd1-pdl1")
+d1$cancer_agreggate <- relevel(factor(d1$cancer_agreggate), ref = "Non-small cell lung cancer")
+d1$stage <- relevel(factor(d1$stage), ref = "iv")
+
+# List of baseline covariates
+base_covariates <- c("subject.age", "prior.targeted_therapy", "subject.metastatic.disease", "Treatment", "cancer_agreggate", "stage")
+
+# Initialize a list to store the results for each drug class
+cox_results <- list()
+
+# Loop through drug classes 
+drug_columns <- names(d1)[14:92]
+
+for (drug in drug_columns) {
+  
+   # Fit the Cox proportional hazards model with covariates and the drug class
+  formula_str <- paste0("Surv(os, subject.dead.hospice) ~ ", 
+                        paste(base_covariates, collapse = " + "), " + ", drug)
+  
+  fit <- coxph(as.formula(formula_str), data = d1)
+  
+  # Summarize only the drug class in the table output (suppress the base covariates)
+  tbl <- tbl_regression(fit, exponentiate = TRUE) %>%
+    modify_table_body(~ .x %>%
+      filter(variable == drug)) %>%
+    modify_header(label = paste0("Drug: ", drug))
+  
+# Count the number of patients with a value of 1 in the covariate column
+   count <- sum(d1[[drug]] == 1, na.rm = TRUE)
+   
+# Add the count as a new column in the table
+  tbl <- tbl %>%
+    modify_table_body(~ .x %>%
+      mutate(Count = count)) %>%
+    modify_header(Count = "**Count**")  # Add the count to the header
+   
+  # Store the results
+  cox_results[[drug]] <- tbl
+}
+
+##Sorting by counts##
+# Create a dataframe for sorting based on counts
+drug_counts <- data.frame(Drug = drug_columns, Count = sapply(drug_columns, function(dc) sum(d1[[dc]] == 1, na.rm = TRUE)))
+
+# Sort the drug counts in descending order
+drug_counts <- drug_counts[order(-drug_counts$Count),]
+
+# Reorder the cox_results based on sorted drug counts
+cox_results <- cox_results[match(drug_counts$Drug, names(cox_results))] 
+
+#Summarize the base covariates separately (fit a model without any drug class)#
+base_formula_str <- paste0("Surv(os, subject.dead.hospice) ~ ", 
+                           paste(base_covariates, collapse = " + "))
+base_fit <- coxph(as.formula(base_formula_str), data = d1)
+
+
+# Combine the base covariates with the drug class tables
+final_table <- tbl_stack((cox_results))
+
+#bold the p's
+final_table <- final_table %>%
+  bold_p(t = 0.05)   %>%
+   modify_header(label = "Drug Class")
+
+# Print the final table
+final_table
+```
+
+
+Add BH correction
+```{r}
+#Extract p-values 
+p_values <- final_table$table_body$p.value 
+
+#Perform BH correction
+q_values <- p.adjust(p_values, method = "BH")
+
+# Format q-values using gtsummary's style_pvalue()
+q_values <- style_pvalue(q_values)
+
+#Add to table 
+final_table <- final_table %>% 
+  modify_table_body(~ .x %>%
+  mutate(`Q-value` = q_values)) %>%
+  modify_header(`Q-value` = "**q-value**")
+
+print(final_table)
+  
+```
+
+
+```{r}
+# Convert to huxtable and write to Excel
+#final_table %>%
+#as_hux_xlsx(file.path(wd$output,"individual_drugs_multivariate.xlsx"))
+```
+
+
+
+```{r}
+beta_blockers <- c("Atenolol", "Bisoprolol", "Carvedilol", "Labetalol", "Metoprolol", 
+                   "Nadolol", "Nebivolol", "Propranolol", "Sotalol") 
+
+beta_df <- individual_drugs %>%
+  select(1:8, "stage", "Treatment", "cancer_agreggate", all_of(beta_blockers))
+```
+
+```{r}
+BB <- beta_df %>%
+  mutate(cardioselective = case_when(
+    Atenolol == 1 ~ 1,
+    Bisoprolol == 1 ~ 1,
+    Metoprolol == 1 ~ 1,
+    Nebivolol == 1 ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(noncardioselective = case_when(
+    Carvedilol == 1 ~ 1,
+    Labetalol == 1 ~ 1,
+    Nadolol == 1 ~ 1,
+    Propranolol == 1 ~ 1, 
+    Sotalol == 1 ~ 1,
+    TRUE ~ 0))
+head(BB)
+
+```
+```{r}
+table(BB$cardioselective, BB$noncardioselective)
+```
+
+```{r}
+sum(BB$cardioselective) 
+sum(BB$noncardioselective)
+```
+
+
+#Beta blocker multivariate 
+
+```{r}
+#Multivariate with significant drugs in the same model
+dat <- BB
+d1 <- dat %>%
+  select(record_id, os, subject.dead.hospice, subject.age, prior.targeted_therapy, subject.metastatic.disease,  Treatment, cancer_agreggate, stage, cardioselective, noncardioselective)
+         
+# Relevel the covariates
+d1$Treatment <- relevel(factor(d1$Treatment), ref = "pd1-pdl1")
+d1$cancer_agreggate <- relevel(factor(d1$cancer_agreggate), ref = "Non-small cell lung cancer")
+d1$stage <- relevel(factor(d1$stage), ref = "iv")
+```
+
+```{r}
+# Create the formula
+formula <- paste0("Surv(os, subject.dead.hospice) ~ ", 
+                  paste(colnames(d1)[-(1:3)], collapse = "+"))
+
+# Fit the Cox model
+fit <- coxph(as.formula(formula), data = d1)
+
+# Get the summary of the Cox model
+summary_fit <- summary(fit)
+
+# Print the results as a gtsummary table
+gt_table <- tbl_regression(fit)
+gt_table2 <-tbl_regression(fit, exponentiate = TRUE)
+print(gt_table)
+print(gt_table2)
+```
+```{r}
+# Convert to huxtable and write to Excel
+#gt_table %>%
+# as_hux_xlsx(file.path(wd$output,"betablockermultivariate.xlsx"))
+
+#gt_table2 %>%
+# as_hux_xlsx(file.path(wd$output,"betablockermultivariate2.xlsx"))
+```
+
+forest plot
+```{r}
+#convert model output to a tibble format using broom package
+output <- tidy(fit, conf.int = TRUE)
+#View(output)
+
+#filter to only include variables we want visualized
+b_forest <- output %>%
+  filter(term %in% c("cardioselective", "noncardioselective"))
+View(b_forest)
+```
+
+#visualize output via forest plot for figure 3
+```{r} 
+#change names for visualization
+b_forest <- b_forest %>%
+  mutate(term = factor(case_when(
+    term == "cardioselective" ~ "Cardioselective Beta-Blockers",
+    term == "noncardioselective" ~ "Non-Cardioselective Beta-Blockers",
+    TRUE ~ term))) %>%
+  arrange(desc(estimate)) %>%
+  mutate(term = factor(term, levels = rev(term))) #sort by ascending hazard ratios
+
+View(b_forest) 
+
+```
+
+
+```{r} 
+forest_plot <- ggplot(b_forest, aes(x = estimate, y = term)) +
+  geom_point(size = 4, color = "deepskyblue") +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, color = "deepskyblue") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "darkgrey") +
+  scale_x_continuous(name = "Log Hazard Ratio", 
+                     breaks = scales::pretty_breaks(), 
+                     limits = c(-0.2, 1)) + # Set limits for x-axis
+  scale_y_discrete(name = "") +
+  theme_minimal(base_size = 20) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.text.y = element_text(size = 20, color = "black"),
+    axis.text.x = element_text(size = 20))
+
+print(forest_plot)
+    
+
+```
+ #add p-values
+```{r}
+#create p-value plot 
+ps <- ggplot(b_forest, aes(x = 0, y = term,
+            label = ifelse(p.value <0.001, "p < 0.001", sprintf("p = %.3f", p.value)))) +
+   geom_text(
+    aes(fontface = ifelse(p.value < 0.05, "bold", "plain")),  # Bold if p < 0.05
+    hjust = 0, 
+    size = 8
+  ) +
+  theme_void() +  # Removes background grid and axes
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = margin(0, 0, 0, 10))  # Adjust right margin to give space for the labels
+print(ps)
+
+```
+
+```{r}
+#Combine plots 
+# Define the layout 
+layout <- c(
+  area(t = 0, l = 0, b = 30, r = 16),  # Left plot (forest_plot), takes up the full height and 11 units of width
+  area(t = 0, l = 12, b = 30, r = 20)   # Right plot (ps), positioned next to the left plot, with 2 units of width
+)
+f1 <- forest_plot + ps + plot_layout(design = layout)
+print(f1)
+```
+
+```{r}
+ggsave(file.path(wd$output, "Forest_plot_3.png"), plot = f1, width = 13, height = 6, dpi = 300)
+```
+
+#add univariate KMs
+```{r}
+drug_classes <- c("noncardioselective", "cardioselective") 
+
+drug_labels <- c(
+  "noncardioselective" = "Non-Cardioselective Beta-Blocker Exposure",
+  "cardioselective" = "Cardioselective Beta-Blocker Exposure"
+)
+# Create survival object
+surv_object <- Surv(time = BB$os, event = BB$subject.dead.hospice)   
+
+# Create loop for plotting
+for (drug in drug_classes) { 
+  
+  # Fit Kaplan-Meier curve
+  fit <- survfit(surv_object ~ get(drug), data = BB)
+
+  # Extract values
+  cox_mode <- coxph(Surv(os, subject.dead.hospice) ~ get(drug), data = BB)
+
+  # Define custom colors for each drug class
+  custom_colors <- c("orange", "deepskyblue")  # Adjust these hex codes to your preferred colors 
+  
+ # Dynamically set legend labels based on the drug name
+  legend_labels <- c("No Exposure", drug_labels[drug])  # Uses the custom label from the mapping
+  
+  # Create the plot
+  plot <- ggsurvplot(fit, data = BB,  pval.size = 9,  risk.table.fontsize = 8, pval = TRUE, conf.int = TRUE, 
+                     risk.table = TRUE,
+                     legend.labs = legend_labels,
+                    palette = custom_colors, 
+                    legend.title = "")  # Set the custom color palette
+  
+plot$plot <- plot$plot +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.6, 0.2),
+    axis.text = element_text(size = 20),  # Axis tick labels
+    axis.title = element_text(size = 22), # Axis titles
+    legend.text = element_text(size = 25), # Legend labels
+   legend.title = element_text(size = 22)
+  ) +
+  xlab("Time (months)")
+
+# Apply theme_minimal for the risk table 
+plot$table <- plot$table + 
+  theme_minimal()  +
+  theme(
+    axis.text = element_text(size = 20),  # Axis tick labels
+    axis.title = element_text(size = 22), # Axis titles
+    legend.text = element_text(size = 20), # Legend labels
+    plot.title = element_text(size = 22)
+  ) +
+  xlab("Time (months)")
+
+
+  # Specify the output file path for each drug class
+ # output_file <- file.path(wd$output, paste0("KM_", drug, ".png"))
+
+  #Open a pdf device 
+ # png(output_file, width = 8, height = 6, units = "in", res = 300)
+  
+  #print plot
+  print(plot)
+  
+  #close device 
+  #dev.off()
+}
+```
+all beta blocker KM
+```{r}
+# Create survival object
+surv_object <- Surv(time = sub_df$os, event = sub_df$subject.dead.hospice)   
+  
+  # Fit Kaplan-Meier curve
+  fit <- survfit(surv_object ~ Beta_Blockers, data = sub_df)
+
+  # Extract values
+  cox_mode <- coxph(Surv(os, subject.dead.hospice) ~ Beta_Blockers, data = sub_df)
+
+  # Define custom colors for each drug class
+  custom_colors <- c("orange", "deepskyblue")  # Adjust these hex codes to your preferred colors 
+  
+ # Dynamically set legend labels based on the drug name
+  legend_labels <- c("No Beta-Blocker Exposure", "Beta-Blocker Exposure")  
+  
+  # Create the plot
+  plot <- ggsurvplot(fit, data = sub_df, pval = TRUE,  pval.size = 9,  risk.table.fontsize = 8,  conf.int = TRUE, 
+                     risk.table = TRUE,
+                     legend.labs = legend_labels,
+                    palette = custom_colors, 
+                    legend.title = "")  # Set the custom color palette
+  
+plot$plot <- plot$plot +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.6, 0.2),
+    axis.text = element_text(size = 20),  # Axis tick labels
+    axis.title = element_text(size = 22), # Axis titles
+    legend.text = element_text(size = 25), # Legend labels
+   legend.title = element_text(size = 22)
+  ) +
+  xlab("Time (months)")
+
+# Apply theme_minimal for the risk table 
+plot$table <- plot$table + 
+  theme_minimal()  +
+  theme(
+    axis.text = element_text(size = 20),  # Axis tick labels
+    axis.title = element_text(size = 22), # Axis titles
+    legend.text = element_text(size = 20), # Legend labels
+    plot.title = element_text(size = 22)
+  ) +
+  xlab("Time (months)")
+print(plot)
+
+# Specify the output file path for PNG
+output_file_png <- file.path(wd$output, "KMs/KM_Beta-Blockers.png")
+
+# Open a PNG device
+png(output_file_png, width = 10, height = 8, units = "in", res = 300)
+
+# Print the plot
+print(plot)
+
+# Close the PNG device
+dev.off()
+
+```
+
+Opioid KM
+```{r}
+# Create survival object
+surv_object <- Surv(time = sub_df$os, event = sub_df$subject.dead.hospice)   
+  
+  # Fit Kaplan-Meier curve
+  fit <- survfit(surv_object ~ Opioid, data = sub_df)
+
+  # Extract values
+  cox_mode <- coxph(Surv(os, subject.dead.hospice) ~ Opioid, data = sub_df)
+
+  # Define custom colors for each drug class
+  custom_colors <- c("orange", "deepskyblue")  # Adjust these hex codes to your preferred colors 
+  
+ # Dynamically set legend labels based on the drug name
+  legend_labels <- c("No Opioid Exposure", "Opioid Exposure")  
+  
+  # Create the plot
+  plot <- ggsurvplot(fit, data = sub_df, pval = TRUE,  pval.size = 9,  risk.table.fontsize = 8,  conf.int = TRUE, 
+                     risk.table = TRUE,
+                     legend.labs = legend_labels,
+                    palette = custom_colors, 
+                    legend.title = "")  # Set the custom color palette
+  
+plot$plot <- plot$plot +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.6, 0.2),
+    axis.text = element_text(size = 20),  # Axis tick labels
+    axis.title = element_text(size = 22), # Axis titles
+    legend.text = element_text(size = 25), # Legend labels
+   legend.title = element_text(size = 22)
+  ) +
+  xlab("Time (months)")
+
+# Apply theme_minimal for the risk table 
+plot$table <- plot$table + 
+  theme_minimal()  +
+  theme(
+    axis.text = element_text(size = 20),  # Axis tick labels
+    axis.title = element_text(size = 22), # Axis titles
+    legend.text = element_text(size = 20), # Legend labels
+    plot.title = element_text(size = 22)
+  ) +
+  xlab("Time (months)")
+print(plot)
+
+# Specify the output file path for PNG
+output_file_png <- file.path(wd$output, "KMs/KM_Opioid.png")
+
+# Open a PNG device
+png(output_file_png, width = 10, height = 8, units = "in", res = 300)
+
+# Print the plot
+print(plot)
+
+# Close the PNG device
+dev.off()
+
+```
+
+

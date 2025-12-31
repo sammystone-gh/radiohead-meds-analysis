@@ -1,0 +1,257 @@
+---
+title: "TableS1"
+author: "Sammy Stone"
+date: "2025-01-30"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(openxlsx)
+library(readr)
+```
+
+
+```{r}
+wd <- list()
+wd$main <- "/Users/samanthastone/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD"
+wd$data <- file.path(wd$main, "data")
+wd$dataP <- file.path(wd$data, "processed")
+wd$output <- file.path(wd$main, "output_sammy")
+wd$script <- file.path(wd$main, "scripts_sammy_final")
+```
+
+
+```{r}
+sub_df <- read_csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
+```
+
+##Use the per-patient harmonized round 10 file
+
+1. add sub classes 
+2. filter out supplements/vitamins/drop.na 
+3. filter out patient ids not on 
+2. group by record id, then get counts for each individual drug + revised classification 
+3. without grouping get total counts
+
+```{r}
+perpatient <- read_excel("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output/Per_patient_harmonized_round_10.xlsx")
+```
+
+```{r}
+perpatient_filt <- perpatient %>%
+  mutate(Revised_Classification = str_trim(Revised_Classification)) %>%
+  filter(!Revised_Classification %in% c("Drop_NA","NA", "Vitamin", "Supplement", "Supplement-non systemic"))
+#not filtering, may need to manually remove after
+```
+
+```{r}
+table(perpatient$Revised_Classification)
+```
+
+```{r}
+perpatient_filt2 <- perpatient_filt %>%
+  select(record_id, harmonized_final, Revised_Classification) 
+```
+
+```{r}
+#get record ids of 1024 analysed pts
+records <- sub_df %>%
+  select(record_id) 
+View(records)
+```
+
+
+```{r}
+#filter patients to match 1024 cohort 
+perpatient_filt3 <- perpatient_filt2 %>%
+  filter(record_id %in% records$record_id) 
+#View(perpatient_filt3)
+print(length(unique(perpatient_filt3$record_id)))
+```
+```{r}
+missing_records <- records %>%
+  filter(!record_id %in% perpatient_filt2$record_id)
+
+print(nrow(missing_records))  # Number of missing records
+print(missing_records)  # See which record IDs are missing
+```
+missing patients are all on vitamins/supplements 
+
+```{r}
+perpatient_filt4 <- perpatient_filt3 %>%
+  mutate(Revised_Classification = ifelse(Revised_Classification == "Corticosteroid-inhaled", "Corticosteroid-non systemic", Revised_Classification))
+```
+
+```{r}
+table(perpatient_filt3$Revised_Classification)
+
+```
+
+```{r}
+table(perpatient_filt4$Revised_Classification)
+```
+
+#create subclass df 
+
+
+```{r}
+#mental health
+benzodiazepines <- c("Clonazepam", "Alprazolam", "Lorazepam", "Diazepam", "Temazepam", "Chlordiazepoxide", "Clobazam")
+
+ssris <- c("Escitalopram", "Citalopram", "Fluoxetine", "Paroxetine", "Sertraline")
+
+#cardiovascular
+
+beta_blockers <- c("Metoprolol", "Carvedilol", "Atenolol", "Propranolol", "Sotalol", 
+                   "Nebivolol", "Nadolol", "Labetalol", "Bisoprolol")
+
+ACEi_ARB <- c("Lisinopril", "Enalapril", "Benazepril", "Ramipril", "Quinapril",
+          "Fosinopril", "Perindopril", "Trandolapril", "Losartan", "Valsartan", "Irbesartan", "Olmesartan", "Candesartan", "Azilsartan","Telmisartan")
+
+cc_blockers <- c("Amlodipine", "Diltiazem", "Nifedipine", "Felodipine", "Verapamil")
+  
+#Cholesterol Lowing
+statins <- c("Atorvastatin","Simvastatin", "Rosuvastatin", "Pravastatin", "Lovastatin", "Fluvastatin")
+
+
+#Anti-pyretic
+
+nsaid <- c("NSAID", "Ibuprofen", "Naproxen", "Meloxicam", "Diclofenac", "Celecoxib", "Indomethacin", 
+           "Ketorolac", "Nabumetone", "Nepafenac")
+
+```
+
+
+
+```{r}
+# Create a data frame for each list and assign the drug class
+beta_blocker_df <- data.frame(Drug_Name = beta_blockers, Drug_SubClass = "Beta_Blockers")
+ACEi_ARB_df <- data.frame(Drug_Name = ACEi_ARB, Drug_SubClass = "ACEi_ARB")
+cc_blocker_df <- data.frame(Drug_Name = cc_blockers, Drug_SubClass = "CC_blockers") 
+statins_df <- data.frame(Drug_Name = statins, Drug_SubClass = "Statin") 
+benzo_df <- data.frame(Drug_Name = benzodiazepines, Drug_SubClass = "Benzodiazepines")
+NSAID_df <- data.frame(Drug_Name = nsaid, Drug_SubClass = "NSAIDs")
+ssri_df <- data.frame(Drug_Name = ssris, Drug_SubClass = "SSRIs")
+
+# Combine all data frames into one
+subclass_df <- rbind(beta_blocker_df, ACEi_ARB_df, cc_blocker_df, statins_df, benzo_df, NSAID_df, ssri_df)
+
+#View(subclass_df)
+```
+
+```{r}
+perpatient_4 <- perpatient_filt4 %>%
+ rename(Drug_Name = harmonized_final, 
+        Drug_Class = Revised_Classification)
+```
+
+
+```{r}
+perptsub <- left_join(perpatient_4, subclass_df, by = "Drug_Name") 
+View(perptsub)
+```
+
+```{r}
+perpatient.sub <- perptsub %>%
+  select(record_id, Drug_Name, Drug_SubClass, Drug_Class)
+```
+
+summary table (summarize drug class, sub class, and individual drug)
+
+```{r}
+#summarize at drug level
+perpt_sum <- perpatient.sub %>%
+  group_by(Drug_Class, Drug_SubClass, Drug_Name) %>% #group each distinct combo
+  summarize(Patient_Count = n_distinct(record_id), #get counts per patient
+           Cumulative_Count = n(),
+           .groups = "drop") %>%
+    mutate(Patient_Freq = (Patient_Count/1024)*100) 
+#View(perpt_sum)
+  #  mutate(Cumulative_Freq = (Patient_Count/(sum(Cumulative_Count))) *100)
+
+#print(sum(perpt_sum$Cumulative_Count))
+#7695
+```
+
+summarize just drug class and drug sub class
+```{r}
+perpt_sum2 <- perpatient.sub %>%
+  group_by(Drug_Class, Drug_SubClass) %>% #group by drug/subclass combo
+  summarize(Patient_Count = n_distinct(record_id), #get counts per patient
+           Cumulative_Count = n(),
+           .groups = "drop") %>%
+    mutate(Patient_Freq = (Patient_Count/1024)*100)
+
+  #View(perpt_sum2.1)
+```
+
+summarize just drug class 
+
+```{r}
+perpt_sum3 <- perpatient.sub %>%
+  group_by(Drug_Class) %>% #group by drug/subclass combo
+  summarize(Patient_Count = n_distinct(record_id), #get counts per patient
+           Cumulative_Count = n(),
+           .groups = "drop") %>%
+    mutate(Patient_Freq = (Patient_Count/1024)*100)
+
+  #View(perpt_sum3)
+```
+
+```{r}
+combined_sum <- bind_rows(perpt_sum3, perpt_sum2, perpt_sum) 
+
+combined_sorted <- combined_sum %>%
+  select(Drug_Class, Drug_SubClass, Drug_Name, Patient_Count, Patient_Freq, Cumulative_Count) %>%
+  arrange(Drug_Class, Drug_SubClass)
+
+View(combined_sorted)
+```
+
+```{r}
+#write.xlsx(combined_sorted, "~/Desktop/FigS1.xlsx")
+```
+#sanity check
+```{r}
+View(combined_sorted)
+```
+
+manually remove duplicates with drug class
+
+get cumulative total count
+```{r}
+print(sum(perpt_sum3$Cumulative_Count))
+```
+```{r}
+perpt_sum5 <- perpatient.sub %>%
+  group_by(Drug_Name) %>% #group by drug/subclass combo
+  summarize(Patient_Count = n_distinct(record_id), #get counts per patient
+           Cumulative_Count = n(),
+           .groups = "drop") %>%
+    mutate(Patient_Freq = (Patient_Count/1024)*100)
+
+View(perpt_sum5)
+```
+
+```{r}
+print(sum(perpt_sum5$Cumulative_Count))
+```
+
+7695 individual drugs prescribed 
+
+```{r}
+# Assuming your dataframe is named df
+num_unique_classes <- combined_sorted %>% 
+  summarise(unique_count = n_distinct(Drug_Class))
+
+print(num_unique_classes) 
+
+length(unique(combined_sorted$Drug_Class))
+```
+
+
+```{r}
+unique_classes <- unique(combined_sorted$Drug_Class)
+print(unique_classes)
+```
+83 Drug classes, 82 when you exclude NA, 81 excluding Drop-NA, and 80 excluding cancer
