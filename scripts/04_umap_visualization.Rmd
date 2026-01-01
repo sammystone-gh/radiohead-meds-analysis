@@ -1,355 +1,246 @@
 ---
-title: "radiohead umap"
+title: "04 - UMAP Visualization"
 author: "Sammy Stone"
 date: "2024-11-08"
 output: html_document
 ---
-```{r}
-#using systemic_df
 
-library(umap)
-library(ggplot2)
+# UMAP Visualization of Drug Class Exposure
+#
+# This script creates a UMAP projection of patients based on their drug class
+# exposure patterns, highlighting minimal overlap between patients exposed to opioids and beta-blocker.
+#
+# Key Output:
+# - Fig_2B.pdf (UMAP with opioid/beta-blocker overlap)
+# - Umap_coordinates.csv (UMAP coordinates saved for reproducibility)
+# - UMAP_model.rds (UMAP R object for reproducibility)
+# - UMAP_parameters.csv (Umap parameters for reproducibility)
+
+# ==============================================================================
+# Setup
+# ==============================================================================
+```{r setup, message=FALSE, warning=FALSE}
+library(here)
 library(tidyverse)
-library(viridis)
-library(uwot)
-library(fastDummies)
+library(umap)
 
+# Load project configuration
+source(here::here("R", "config.R"))
 ```
 
-Load:
-```{r}
-#systemic df
-systemic_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_systemicdrugs.csv")
+# ==============================================================================
+# Load Data
+# ==============================================================================
+```{r load-data}
+# Load systemic drugs dataframe (for UMAP features)
+systemic_df <- read.csv(paths$systemic_drugs)
 
-#sub_df
-sub_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
+# Load subclasses dataframe (for exposure categories)
+cohortsub <- read.csv(paths$subclasses_df)
 
-#cohortsub
-
-cohortsub <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_subclasses.csv")
-
+message(sprintf("✓ Loaded %d patients", nrow(systemic_df)))
 ```
 
-
-```{r}
-df<- systemic_df
-```
-
-#medication UMAP
-
-```{r}
-top20 <- systemic_df %>%
+# ==============================================================================
+# Prepare UMAP Features
+# ==============================================================================
+```{r prepare-features}
+# Filter and select features for UMAP
+umap_features <- systemic_df %>%
   filter(!is.na(subject.dead.hospice)) %>%
   filter(stage != "UNK") %>%
-  select(-c(2, 4, 5, 6, 7, 8, 11)) #remove cancer type, death event, age, line.1.therapy, prior.targeted therapy, mets, irae any, stage
+  select(-c(meddra.disease.preferred.name, os, subject.dead.hospice, subject.age, line.1.therapy, subject.metastatic.disease, prior.targeted_therapy, irae.any, irae.severe, stage, Corticosteroids, record_id))  #Remove non medication columns or medications that are repeated
+
+
+message(sprintf("✓ Using %d drug class features for UMAP", ncol(umap_features)))
+message(sprintf("✓ Analyzing %d patients", nrow(umap_features)))
 ```
 
-any
-```{r}
+# ==============================================================================
+# Run UMAP (with selected optimal parameters)
+# ==============================================================================
+```{r run-umap}
+# Set seed for reproducibility
+set.seed(123456)
 
-m.any <- top20 %>%
-  select(-Corticosteroids, -irae.any, -irae.severe, -os, -record_id )
-```
-
-```{r}
-colnames(m.any)
-```
-
-```{r}
-#write_csv(m.any, "~/Desktop/RADIOHEAD_umap_df.csv")
-```
-
-```{r}
-nrow(m.any)
-```
-
-```{r}
-set.seed(123)
+# Configure UMAP with explicit parameters for reproducibility
 umap_config <- umap.defaults
-umap_config$random_state <- 123
+umap_config$random_state <- 123456
+umap_config$n_neighbors <- 20      
+umap_config$min_dist <- 0.3        
+umap_config$spread <- 1.0          
+umap_config$metric <- "euclidean"  
+umap_config$n_epochs <- 200       
 
-umap_result <- umap(m.any, n_neighbors = 20, min_dist = 0.3)
-umap_df <- data.frame(umap_result)
+# Run UMAP
+umap_result <- umap(umap_features, config = umap_config)
+
+# Convert to dataframe 
+umap_df <- data.frame(umap_result$layout)
 colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+message("✓ UMAP projection complete")
+message(sprintf("  Parameters: n_neighbors=%d, min_dist=%.1f, spread=%.1f",
+               umap_config$n_neighbors, umap_config$min_dist, umap_config$spread))
 ```
 
-```{r}
-# Ensure Opioid is a factor with levels 0 and 1
-umap_df$Opioid <- factor(m.any$Opioid, levels = c(0, 1))
-
-# Define custom colors
-colors_1 <- c("0" = "deepskyblue", "1" = "orange")
-
-# Plot
-p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Opioid)) +
-  geom_point() +
-  scale_color_manual(values = colors_1) +  # Apply custom colors
-  theme_minimal() +
-  theme(
-    legend.position = c(0.8, 0.8),
-     axis.text = element_text(size = 18), 
-    axis.title = element_text(size = 22),
-    legend.text = element_text(size = 18),
-    legend.title = element_text(size = 22))  +
-  labs(color = "Opioids") 
-
-print(p)
-```
-
-
-```{r}
-print(p)
-```
-
-```{r}
-#ggsave("opioid_umap3.pdf", plot = p, device = "pdf", width = 7,  height = 7)
-```
-
-#UMAP Overlap
-Fig 2B
-
-```{r}
-cohortsub2 <- cohortsub %>%
+# ==============================================================================
+# Create Exposure Categories
+# ==============================================================================
+```{r create-exposure-categories}
+# Filter cohortsub to match UMAP cohort
+cohortsub_filtered <- cohortsub %>%
   filter(!is.na(subject.dead.hospice)) %>%
   filter(stage != "UNK")
-```
 
-```{r}
-shared <- cohortsub2 %>%
+# Create exposure categories
+exposure_data <- cohortsub_filtered %>%
   select(record_id, Opioid, Beta_Blockers) %>%
   mutate(Exposure = case_when(
     Opioid == 1 & Beta_Blockers == 0 ~ "Opioids",
-    Opioid == 0 &  Beta_Blockers == 1 ~ "Beta-Blockers",
+    Opioid == 0 & Beta_Blockers == 1 ~ "Beta-Blockers",
     Opioid == 1 & Beta_Blockers == 1 ~ "Overlap",
     TRUE ~ "Other"
   ))
+
+# Add exposure to UMAP dataframe
+umap_df$Exposure <- factor(
+  exposure_data$Exposure,
+  levels = c("Opioids", "Beta-Blockers", "Overlap", "Other")
+)
+
+# Summary of exposure categories
+exposure_summary <- table(umap_df$Exposure)
+message("\n=== Exposure Category Counts ===")
+print(exposure_summary)
 ```
 
-```{r}
-umap_df$Exposure <- factor(shared$Exposure, levels = c("Opioids", "Beta-Blockers", "Overlap", "Other"))
+# ==============================================================================
+# Save UMAP Coordinates 
+# ==============================================================================
+```{r save-umap-coordinates}
+# Create data directory if it doesn't exist
+umap_data_dir <- here::here("output", "data")
+dir.create(umap_data_dir, showWarnings = FALSE, recursive = TRUE)
 
-colors_2 <- c("Opioids" = "#08306B",
-              "Beta-Blockers" = "#FDAE61",
-              "Overlap" = "#00BFFF",
-              "Other" = "grey")
+# Save UMAP coordinates with record IDs and exposure categories
+umap_coordinates <- data.frame(
+  record_id = cohortsub_filtered$record_id,
+  UMAP1 = umap_df$UMAP1,
+  UMAP2 = umap_df$UMAP2,
+  Exposure = umap_df$Exposure
+)
 
+# Save as CSV
+write.csv(
+  umap_coordinates,
+  here::here(umap_data_dir, "UMAP_coordinates.csv"),
+  row.names = FALSE
+)
+
+# Also save the full UMAP object (includes model)
+saveRDS(
+  umap_result,
+  here::here(umap_data_dir, "UMAP_model.rds")
+)
+
+# Save UMAP parameters for documentation
+umap_params <- data.frame(
+  parameter = c("seed", "random_state", "n_neighbors", "min_dist", "spread", "metric", "n_epochs"),
+  value = c(123456, 
+            umap_config$random_state,
+            umap_config$n_neighbors,
+            umap_config$min_dist,
+            umap_config$spread,
+            umap_config$metric,
+            umap_config$n_epochs)
+)
+
+write.csv(
+  umap_params,
+  here::here(umap_data_dir, "UMAP_parameters.csv"),
+  row.names = FALSE
+)
+
+message("✓ Saved UMAP coordinates to: output/data/UMAP_coordinates.csv")
+message("✓ Saved UMAP model to: output/data/UMAP_model.rds")
+message("✓ Saved UMAP parameters to: output/data/UMAP_parameters.csv")
 ```
 
-```{r}
-# Plot UMAP with multiple exposure categories
-p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Exposure)) +
-  geom_point(size = 1.5, alpha = 1) +  # Adjust transparency for better overlap visualization
-  scale_color_manual(values = colors_2) +  
-  theme_minimal() +  
+# ==============================================================================
+# Figure 2B: UMAP with Opioid/Beta-Blocker Overlap
+# ==============================================================================
+```{r figure-2b, fig.width=9, fig.height=7}
+# Define custom colors
+custom_colors <- c(
+  "Opioids" = "#08306B",
+  "Beta-Blockers" = "#FDAE61",
+  "Overlap" = "#00BFFF",
+  "Other" = "grey"
+)
+
+# Create UMAP plot
+umap_plot <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Exposure)) +
+  geom_point(size = 1.5, alpha = 1) +
+  scale_color_manual(values = custom_colors) +
+  theme_minimal() +
   theme(
     legend.position = c(0.87, 0.85),
-    axis.text = element_text(size = 18), 
+    axis.text = element_text(size = 18),
     axis.title = element_text(size = 22),
     legend.text = element_text(size = 20),
     legend.title = element_blank(),
-     panel.grid = element_blank(),  # Removes all grid lines
-    panel.border = element_blank(), # Removes outer border
+    panel.grid = element_blank(),
+    panel.border = element_blank(),
     axis.line = element_line(color = "grey")
   ) +
   labs(x = "UMAP 1", y = "UMAP 2", color = NULL)
-print(p)
-```
-```{r}
-ggsave("shared_umap.pdf", plot = p, device = "pdf", width = 9,  height = 7)
-```
 
+# Display plot
+print(umap_plot)
 
-
-#Jaccards Index of Similarity- like overlap, but not calculated with respect to smaller size
-calculate overlap between opioids with anti-emetic, laxative, diuretic, beta-blocker, systemic corticosteroids, benzodiazepines w/ percentages 
-
-```{r}
-# Define two sets
-set1 <- c(1, 2, 3, 4, 5)
-set2 <- c(3, 4, 5, 6, 7)
-
-# Function to calculate Jaccard indec
-calculate_jaccard<- function(set1, set2) {
-  intersection <- intersect(set1, set2)
-  union <- union(set1, set2)
-  jaccard_coefficient <- length(intersection) /length(union)
-  return(jaccard_coefficient)
-}
-
-# Calculate Overlap coefficient
-jaccard <- calculate_jaccard(set1, set2)
-print(jaccard)
-```
-
-define columns
-```{r}
-cols <- c("Anti_emetic", "Laxative", "Diuretic", "Beta_Blockers", "Corticosteroid_systemic", "Benzodiazepines")
-```
-
-loop 
-```{r}
-#initialize results list 
-results <- list()
-
-for (col in cols) {
-  overlap <- calculate_jaccard(
-    which(sub_df$Opioid == 1),
-    which(sub_df[[col]] == 1)
-  )
-  results[[col]] <- overlap
-} 
-
-#convert results to a df
-results_df <- data.frame(
-  Drug_class = names(results), 
-  Jaccard_Index = unlist(results)
+# Save plot
+ggsave(
+  here::here("output", "figures", "Fig_2B.pdf"),
+  plot = umap_plot,
+  device = "pdf",
+  width = 9,
+  height = 7
 )
-results_df <- results_df %>%
-  mutate(Drug_class = case_when(
-    Drug_class == "Anti_emetic" ~ "Anti-emetics",
-    Drug_class == "Laxative" ~ "Laxatives",
-    Drug_class == "Beta_Blockers" ~ "Beta-Blockers",
-    Drug_class == "Corticosteroid_systemic" ~ "Corticosteroid-systemic",
-    Drug_class == "Diuretic" ~ "Diuretics",
-   TRUE ~ Drug_class))
-   
-#save as excel 
-#write.xlsx(results_df, "jaccardresults.xlsx")
 
-View(results_df)
-
+message("✓ Saved Fig_2B.pdf")
 ```
 
-```{r}
-results_df$Jaccard_Prop <- results_df$Jaccard_Index 
+# ==============================================================================
+# Summary
+# ==============================================================================
+```{r summary}
+message("\n=== UMAP Analysis Complete ===")
+message(sprintf("Total patients: %d", nrow(umap_df)))
+message(sprintf("  Opioids only: %d", sum(umap_df$Exposure == "Opioids")))
+message(sprintf("  Beta-blockers only: %d", sum(umap_df$Exposure == "Beta-Blockers")))
+message(sprintf("  Overlap (both): %d", sum(umap_df$Exposure == "Overlap")))
+message(sprintf("  Other: %d", sum(umap_df$Exposure == "Other")))
 
-# Reorder the Drug_Class factor based on Percent_Overlap
-results_df$Drug_Class <- factor(results_df$Drug_class, 
-                                levels = results_df$Drug_class[order(results_df$Jaccard_Prop, decreasing = TRUE)])
-
-# Create the bar plot with ordered Drug_Class and extended y-axis
-ggplot(results_df, aes(x = Drug_Class, y = Jaccard_Prop)) +
-  geom_bar(stat = "identity", fill = "deepskyblue", color = "grey", alpha=.6, width=.6) +
-  theme_minimal() +
-  labs(
-    title = "",
-    x = "",
-    y = "Jaccard Coefficient"
-  ) +
-   theme(
-    axis.text = element_text(size = 14, color = "black"),  # Axis tick labels
-    axis.title = element_text(size = 16, color = "black") # Axis titles
-  ) +
-  # Extend y-axis to 100%
-  expand_limits(y = c(0, 1)) + 
-  coord_flip() 
-#geom_hline(yintercept = 25, linetype = "dashed", color = "darkgrey", linewidth = 0.5)  # Add horizontal dashed line at 50%
-
-# Optionally save the plot
-#ggsave("Jaccard_barplot.pdf")
-
-```
-manual check 
-```{r}
-opioid_emetic <- sub_df %>%
-  filter(Opioid == 1 & Anti_emetic == 1)
-nrow(opioid_emetic) 
-
-emetic <- sub_df %>%
-  filter(Anti_emetic == 1)
-nrow(emetic)
+message("\n=== Output Files ===")
+message("Figures:")
+message("  - output/figures/Fig_2B.pdf")
+message("Data:")
+message("  - output/data/UMAP_coordinates.csv")
+message("  - output/data/UMAP_model.rds")
+message("  - output/data/UMAP_parameters.csv")
 ```
 
-#Beta-Blocker Jaccard 
+# ==============================================================================
+# Session Info
+# ==============================================================================
+```{r session-info}
+message("\n=== Session Information ===")
+sessionInfo()
 
-define columns
-```{r}
-cols <- c("Anti_emetic", "Laxative", "Diuretic", "Opioid", "Corticosteroid_systemic", "Benzodiazepines")
+message("\n=== Key Package Versions ===")
+cat(sprintf("R version: %s\n", R.version.string))
+cat(sprintf("umap: %s\n", packageVersion("umap")))
+cat(sprintf("tidyverse: %s\n", packageVersion("tidyverse")))
+cat(sprintf("ggplot2: %s\n", packageVersion("ggplot2")))
 ```
-
-loop 
-```{r}
-#initialize results list 
-results <- list()
-
-for (col in cols) {
-  overlap <- calculate_jaccard(
-    which(sub_df$Beta_Blockers == 1),
-    which(sub_df[[col]] == 1)
-  )
-  results[[col]] <- overlap
-} 
-
-#convert results to a df
-results_df <- data.frame(
-  Drug_class = names(results), 
-  Jaccard_Index = unlist(results)
-)
-results_df <- results_df %>%
-  mutate(Drug_class = case_when(
-    Drug_class == "Anti_emetic" ~ "Anti-emetics",
-    Drug_class == "Laxative" ~ "Laxatives",
-    Drug_class == "Opioid" ~ "Opioids",
-    Drug_class == "Corticosteroid_systemic" ~ "Corticosteroid-systemic",
-    Drug_class == "Diuretic" ~ "Diuretics",
-   TRUE ~ Drug_class))
-   
-#save as excel 
-#write.xlsx(results_df, "jaccardresults.xlsx")
-
-View(results_df)
-
-```
-
-```{r}
-results_df$Jaccard_Prop <- results_df$Jaccard_Index 
-
-# Reorder the Drug_Class factor based on Percent_Overlap
-results_df$Drug_Class <- factor(results_df$Drug_class, 
-                                levels = results_df$Drug_class[order(results_df$Jaccard_Prop, decreasing = TRUE)])
-
-# Create the bar plot with ordered Drug_Class and extended y-axis
-ggplot(results_df, aes(x = Drug_Class, y = Jaccard_Prop)) +
-  geom_bar(stat = "identity", fill = "deepskyblue", color = "grey", alpha=.6, width=.6) +
-  theme_minimal() +
-  labs(
-    title = "",
-    x = "",
-    y = "Jaccard Coefficient"
-  ) +
-   theme(
-    axis.text = element_text(size = 14, color = "black"),  # Axis tick labels
-    axis.title = element_text(size = 16, color = "black") # Axis titles
-  ) +
-  # Extend y-axis to 100%
-  expand_limits(y = c(0, 1)) + 
-  coord_flip() 
-#geom_hline(yintercept = 25, linetype = "dashed", color = "darkgrey", linewidth = 0.5)  # Add horizontal dashed line at 50%
-
-# Optionally save the plot
-#ggsave("BB_Jaccard_barplot.pdf")
-
-```
-manual checks
-```{r}
-opioid_BB <- sub_df %>%
-  filter(Opioid == 1 & Beta_Blockers == 1)
-nrow(opioid_BB) 
-
-opioid_check <- sub_df %>%
-  filter(Opioid == 1)
-  nrow(opioid_check)
-
-opioid_check2 <- sub_df %>%
-  filter(Opioid == 1 & Beta_Blockers == 0)
-nrow(opioid_check2)
-
-bb_check <- sub_df %>%
-  filter(Beta_Blockers == 1)
-nrow(bb_check)
-
-bb_check2 <- sub_df %>%
-  filter(Beta_Blockers == 1 & Opioid == 1)
-nrow(bb_check2)
-```
-

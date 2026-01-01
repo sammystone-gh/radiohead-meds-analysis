@@ -1,257 +1,246 @@
 ---
-title: "TableS1"
+title: "07 - Supplementary Tables"
 author: "Sammy Stone"
 date: "2025-01-30"
 output: html_document
 ---
-```{r}
+
+# Supplementary Table S1: Drug Classification Summary
+#
+# This script generates a comprehensive summary of all medications prescribed
+# to patients in the RADIOHEAD cohort, organized by drug class, subclass, and
+# individual drug name. It includes patient counts and prescription frequencies.
+#
+# Outputs:
+# - Tables: Table_S1.xlsx (comprehensive drug classification summary)
+
+# ==============================================================================
+# Setup
+# ==============================================================================
+```{r load-packages, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(openxlsx)
-library(readr)
+library(readxl)
+library(here)
+```
+```{r load-config}
+# Load project configuration
+source(here::here("R", "config.R"))
+```
+```{r load-data}
+# Load processed dataframes
+sub_df <- read_csv(multivariate_df)
+
+# Load per-patient harmonized medication data
+perpatient <- read_excel(here::here(data_raw, "Per_patient_harmonized_round_10.xlsx"))
+
+message("✓ Loaded multivariate dataframe: ", nrow(sub_df), " patients")
+message("✓ Loaded per-patient medication data: ", nrow(perpatient), " medication entries")
 ```
 
-
-```{r}
-wd <- list()
-wd$main <- "/Users/samanthastone/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD"
-wd$data <- file.path(wd$main, "data")
-wd$dataP <- file.path(wd$data, "processed")
-wd$output <- file.path(wd$main, "output_sammy")
-wd$script <- file.path(wd$main, "scripts_sammy_final")
-```
-
-
-```{r}
-sub_df <- read_csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
-```
-
-##Use the per-patient harmonized round 10 file
-
-1. add sub classes 
-2. filter out supplements/vitamins/drop.na 
-3. filter out patient ids not on 
-2. group by record id, then get counts for each individual drug + revised classification 
-3. without grouping get total counts
-
-```{r}
-perpatient <- read_excel("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output/Per_patient_harmonized_round_10.xlsx")
-```
-
-```{r}
+# ==============================================================================
+# Filter and Clean Medication Data
+# ==============================================================================
+```{r filter-medications}
+# Filter out non-systemic medications (vitamins, supplements, drop_na)
 perpatient_filt <- perpatient %>%
   mutate(Revised_Classification = str_trim(Revised_Classification)) %>%
-  filter(!Revised_Classification %in% c("Drop_NA","NA", "Vitamin", "Supplement", "Supplement-non systemic"))
-#not filtering, may need to manually remove after
-```
+  filter(!Revised_Classification %in% c("Drop_NA", "NA", "Vitamin", "Supplement", "Supplement-non systemic"))
 
-```{r}
-table(perpatient$Revised_Classification)
+message("\nFiltered medications:")
+message(sprintf("  Original entries: %d", nrow(perpatient)))
+message(sprintf("  After filtering: %d", nrow(perpatient_filt)))
 ```
-
-```{r}
+```{r filter-cohort}
+# Select relevant columns
 perpatient_filt2 <- perpatient_filt %>%
-  select(record_id, harmonized_final, Revised_Classification) 
-```
+  select(record_id, harmonized_final, Revised_Classification)
 
-```{r}
-#get record ids of 1024 analysed pts
+# Get record IDs of analyzed cohort (1024 patients)
 records <- sub_df %>%
-  select(record_id) 
-View(records)
-```
+  select(record_id)
 
-
-```{r}
-#filter patients to match 1024 cohort 
+# Filter to match 1024 patient cohort
 perpatient_filt3 <- perpatient_filt2 %>%
-  filter(record_id %in% records$record_id) 
-#View(perpatient_filt3)
-print(length(unique(perpatient_filt3$record_id)))
-```
-```{r}
+  filter(record_id %in% records$record_id)
+
+message(sprintf("\nFiltered to analyzed cohort: %d patients", length(unique(perpatient_filt3$record_id))))
+
+# Check for missing patients
 missing_records <- records %>%
   filter(!record_id %in% perpatient_filt2$record_id)
 
-print(nrow(missing_records))  # Number of missing records
-print(missing_records)  # See which record IDs are missing
+if (nrow(missing_records) > 0) {
+  message(sprintf("  Note: %d patients only on vitamins/supplements (excluded)", nrow(missing_records)))
+}
 ```
-missing patients are all on vitamins/supplements 
-
-```{r}
+```{r consolidate-corticosteroids}
+# Consolidate inhaled corticosteroids into non-systemic category
 perpatient_filt4 <- perpatient_filt3 %>%
-  mutate(Revised_Classification = ifelse(Revised_Classification == "Corticosteroid-inhaled", "Corticosteroid-non systemic", Revised_Classification))
+  mutate(Revised_Classification = ifelse(Revised_Classification == "Corticosteroid-inhaled", 
+                                         "Corticosteroid-non systemic", 
+                                         Revised_Classification))
+
+message(sprintf("\nFinal medication dataset: %d entries", nrow(perpatient_filt4)))
 ```
 
-```{r}
-table(perpatient_filt3$Revised_Classification)
-
-```
-
-```{r}
-table(perpatient_filt4$Revised_Classification)
-```
-
-#create subclass df 
-
-
-```{r}
-#mental health
-benzodiazepines <- c("Clonazepam", "Alprazolam", "Lorazepam", "Diazepam", "Temazepam", "Chlordiazepoxide", "Clobazam")
+# ==============================================================================
+# Define Drug Subclasses
+# ==============================================================================
+```{r define-subclasses}
+# Mental health medications
+benzodiazepines <- c("Clonazepam", "Alprazolam", "Lorazepam", "Diazepam", 
+                     "Temazepam", "Chlordiazepoxide", "Clobazam")
 
 ssris <- c("Escitalopram", "Citalopram", "Fluoxetine", "Paroxetine", "Sertraline")
 
-#cardiovascular
-
+# Cardiovascular medications
 beta_blockers <- c("Metoprolol", "Carvedilol", "Atenolol", "Propranolol", "Sotalol", 
                    "Nebivolol", "Nadolol", "Labetalol", "Bisoprolol")
 
 ACEi_ARB <- c("Lisinopril", "Enalapril", "Benazepril", "Ramipril", "Quinapril",
-          "Fosinopril", "Perindopril", "Trandolapril", "Losartan", "Valsartan", "Irbesartan", "Olmesartan", "Candesartan", "Azilsartan","Telmisartan")
+              "Fosinopril", "Perindopril", "Trandolapril", "Losartan", "Valsartan", 
+              "Irbesartan", "Olmesartan", "Candesartan", "Azilsartan", "Telmisartan")
 
 cc_blockers <- c("Amlodipine", "Diltiazem", "Nifedipine", "Felodipine", "Verapamil")
-  
-#Cholesterol Lowing
-statins <- c("Atorvastatin","Simvastatin", "Rosuvastatin", "Pravastatin", "Lovastatin", "Fluvastatin")
 
+# Cholesterol lowering
+statins <- c("Atorvastatin", "Simvastatin", "Rosuvastatin", "Pravastatin", 
+             "Lovastatin", "Fluvastatin")
 
-#Anti-pyretic
+# Anti-pyretic/anti-inflammatory
+nsaid <- c("NSAID", "Ibuprofen", "Naproxen", "Meloxicam", "Diclofenac", "Celecoxib", 
+           "Indomethacin", "Ketorolac", "Nabumetone", "Nepafenac")
 
-nsaid <- c("NSAID", "Ibuprofen", "Naproxen", "Meloxicam", "Diclofenac", "Celecoxib", "Indomethacin", 
-           "Ketorolac", "Nabumetone", "Nepafenac")
-
+message("\nDefined drug subclasses:")
+message(sprintf("  Beta-blockers: %d drugs", length(beta_blockers)))
+message(sprintf("  ACEi/ARBs: %d drugs", length(ACEi_ARB)))
+message(sprintf("  Calcium channel blockers: %d drugs", length(cc_blockers)))
+message(sprintf("  Statins: %d drugs", length(statins)))
+message(sprintf("  Benzodiazepines: %d drugs", length(benzodiazepines)))
+message(sprintf("  SSRIs: %d drugs", length(ssris)))
+message(sprintf("  NSAIDs: %d drugs", length(nsaid)))
 ```
-
-
-
-```{r}
-# Create a data frame for each list and assign the drug class
+```{r create-subclass-df}
+# Create subclass mapping dataframe
 beta_blocker_df <- data.frame(Drug_Name = beta_blockers, Drug_SubClass = "Beta_Blockers")
 ACEi_ARB_df <- data.frame(Drug_Name = ACEi_ARB, Drug_SubClass = "ACEi_ARB")
-cc_blocker_df <- data.frame(Drug_Name = cc_blockers, Drug_SubClass = "CC_blockers") 
-statins_df <- data.frame(Drug_Name = statins, Drug_SubClass = "Statin") 
+cc_blocker_df <- data.frame(Drug_Name = cc_blockers, Drug_SubClass = "CC_blockers")
+statins_df <- data.frame(Drug_Name = statins, Drug_SubClass = "Statin")
 benzo_df <- data.frame(Drug_Name = benzodiazepines, Drug_SubClass = "Benzodiazepines")
 NSAID_df <- data.frame(Drug_Name = nsaid, Drug_SubClass = "NSAIDs")
 ssri_df <- data.frame(Drug_Name = ssris, Drug_SubClass = "SSRIs")
 
-# Combine all data frames into one
-subclass_df <- rbind(beta_blocker_df, ACEi_ARB_df, cc_blocker_df, statins_df, benzo_df, NSAID_df, ssri_df)
-
-#View(subclass_df)
+# Combine all subclass mappings
+subclass_df <- rbind(beta_blocker_df, ACEi_ARB_df, cc_blocker_df, statins_df, 
+                     benzo_df, NSAID_df, ssri_df)
 ```
-
-```{r}
+```{r merge-subclasses}
+# Rename columns and merge with subclass assignments
 perpatient_4 <- perpatient_filt4 %>%
- rename(Drug_Name = harmonized_final, 
-        Drug_Class = Revised_Classification)
-```
+  rename(Drug_Name = harmonized_final, 
+         Drug_Class = Revised_Classification)
 
+# Left join to add subclass information
+perptsub <- left_join(perpatient_4, subclass_df, by = "Drug_Name")
 
-```{r}
-perptsub <- left_join(perpatient_4, subclass_df, by = "Drug_Name") 
-View(perptsub)
-```
-
-```{r}
+# Select final columns
 perpatient.sub <- perptsub %>%
   select(record_id, Drug_Name, Drug_SubClass, Drug_Class)
+
+message(sprintf("\nMerged subclass assignments: %d entries", nrow(perpatient.sub)))
 ```
 
-summary table (summarize drug class, sub class, and individual drug)
-
-```{r}
-#summarize at drug level
+# ==============================================================================
+# Generate Summary Tables
+# ==============================================================================
+```{r summarize-individual-drugs}
+# Summary at individual drug level
 perpt_sum <- perpatient.sub %>%
-  group_by(Drug_Class, Drug_SubClass, Drug_Name) %>% #group each distinct combo
-  summarize(Patient_Count = n_distinct(record_id), #get counts per patient
-           Cumulative_Count = n(),
-           .groups = "drop") %>%
-    mutate(Patient_Freq = (Patient_Count/1024)*100) 
-#View(perpt_sum)
-  #  mutate(Cumulative_Freq = (Patient_Count/(sum(Cumulative_Count))) *100)
+  group_by(Drug_Class, Drug_SubClass, Drug_Name) %>%
+  summarize(
+    Patient_Count = n_distinct(record_id),
+    Cumulative_Count = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(Patient_Freq = (Patient_Count / 1024) * 100)
 
-#print(sum(perpt_sum$Cumulative_Count))
-#7695
+message("\nSummary at drug level:")
+message(sprintf("  Unique drugs: %d", nrow(perpt_sum)))
 ```
-
-summarize just drug class and drug sub class
-```{r}
+```{r summarize-subclasses}
+# Summary at drug subclass level
 perpt_sum2 <- perpatient.sub %>%
-  group_by(Drug_Class, Drug_SubClass) %>% #group by drug/subclass combo
-  summarize(Patient_Count = n_distinct(record_id), #get counts per patient
-           Cumulative_Count = n(),
-           .groups = "drop") %>%
-    mutate(Patient_Freq = (Patient_Count/1024)*100)
+  group_by(Drug_Class, Drug_SubClass) %>%
+  summarize(
+    Patient_Count = n_distinct(record_id),
+    Cumulative_Count = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(Patient_Freq = (Patient_Count / 1024) * 100)
 
-  #View(perpt_sum2.1)
+message(sprintf("  Unique subclasses: %d", sum(!is.na(perpt_sum2$Drug_SubClass))))
 ```
-
-summarize just drug class 
-
-```{r}
+```{r summarize-classes}
+# Summary at drug class level
 perpt_sum3 <- perpatient.sub %>%
-  group_by(Drug_Class) %>% #group by drug/subclass combo
-  summarize(Patient_Count = n_distinct(record_id), #get counts per patient
-           Cumulative_Count = n(),
-           .groups = "drop") %>%
-    mutate(Patient_Freq = (Patient_Count/1024)*100)
+  group_by(Drug_Class) %>%
+  summarize(
+    Patient_Count = n_distinct(record_id),
+    Cumulative_Count = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(Patient_Freq = (Patient_Count / 1024) * 100)
 
-  #View(perpt_sum3)
+message(sprintf("  Unique drug classes: %d", nrow(perpt_sum3)))
+message(sprintf("  Total medication entries: %d", sum(perpt_sum3$Cumulative_Count)))
 ```
+```{r combine-summaries}
+# Combine all summary levels
+combined_sum <- bind_rows(perpt_sum3, perpt_sum2, perpt_sum)
 
-```{r}
-combined_sum <- bind_rows(perpt_sum3, perpt_sum2, perpt_sum) 
-
+# Sort by drug class and subclass
 combined_sorted <- combined_sum %>%
   select(Drug_Class, Drug_SubClass, Drug_Name, Patient_Count, Patient_Freq, Cumulative_Count) %>%
   arrange(Drug_Class, Drug_SubClass)
 
-View(combined_sorted)
+message("\nCombined summary table:")
+message(sprintf("  Total rows: %d", nrow(combined_sorted)))
+message(sprintf("  Drug classes represented: %d", n_distinct(combined_sorted$Drug_Class)))
 ```
 
-```{r}
-#write.xlsx(combined_sorted, "~/Desktop/FigS1.xlsx")
-```
-#sanity check
-```{r}
-View(combined_sorted)
-```
+# ==============================================================================
+# Save Output
+# ==============================================================================
+```{r save-table}
+# Save as Excel file (Table S1)
+write.xlsx(combined_sorted, here::here(tables, "Table_S1.xlsx"))
 
-manually remove duplicates with drug class
-
-get cumulative total count
-```{r}
-print(sum(perpt_sum3$Cumulative_Count))
-```
-```{r}
-perpt_sum5 <- perpatient.sub %>%
-  group_by(Drug_Name) %>% #group by drug/subclass combo
-  summarize(Patient_Count = n_distinct(record_id), #get counts per patient
-           Cumulative_Count = n(),
-           .groups = "drop") %>%
-    mutate(Patient_Freq = (Patient_Count/1024)*100)
-
-View(perpt_sum5)
+message("\n✓ Saved Table_S1.xlsx")
 ```
 
-```{r}
-print(sum(perpt_sum5$Cumulative_Count))
+# ==============================================================================
+# Summary Statistics
+# ==============================================================================
+```{r summary-stats}
+message("\n=== Supplementary Table S1 Complete ===")
+message("\nKey Statistics:")
+message(sprintf("  Total patients analyzed: 1024"))
+message(sprintf("  Total medication entries: %d", sum(perpt_sum3$Cumulative_Count)))
+message(sprintf("  Unique drug classes: %d", n_distinct(combined_sorted$Drug_Class)))
+message(sprintf("  Unique drug subclasses: %d", sum(!is.na(unique(combined_sorted$Drug_SubClass)))))
+message(sprintf("  Unique individual drugs: %d", sum(!is.na(unique(combined_sorted$Drug_Name)))))
+
+message("\nOutput Files:")
+message("Tables:")
+message("  - output/tables/Table_S1.xlsx")
 ```
 
-7695 individual drugs prescribed 
-
-```{r}
-# Assuming your dataframe is named df
-num_unique_classes <- combined_sorted %>% 
-  summarise(unique_count = n_distinct(Drug_Class))
-
-print(num_unique_classes) 
-
-length(unique(combined_sorted$Drug_Class))
+# ==============================================================================
+# Session Info (for reproducibility)
+# ==============================================================================
+```{r session-info}
+sessionInfo()
 ```
 
-
-```{r}
-unique_classes <- unique(combined_sorted$Drug_Class)
-print(unique_classes)
-```
-83 Drug classes, 82 when you exclude NA, 81 excluding Drop-NA, and 80 excluding cancer
+##83 Drug classes, 82 when you exclude NA, 81 excluding Drop-NA, and 80 excluding cancer. Clean up performed in excel.

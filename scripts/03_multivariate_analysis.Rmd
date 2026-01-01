@@ -17,12 +17,15 @@ output:
 # 2. Combined multivariate model with significant drug classes
 # 3. Opioid + palliative bundle interaction analysis
 # 4. Forest plots for visualization
+# 5. Kaplan Meir Survival Curves for opioid and beta-blocker exposure
 #
 # Key Outputs:
-# - Merged univariate/multivariate table (Excel)
-# - Forest_plot_1.png (significant drug classes)
-# - Forest_plot_2.png (opioid-palliative interaction)
+# - Merged univariate/multivariate table (Table 1)
+# - Fig_2A.png (significant drug classes forest plot)
+# - Fig_3B.png (opioid-palliative interaction forest plot)
 # - palliativebundledf.csv (for use in subsequent analyses)
+# - Table S2 and S4 (full model outputs for Figures 2A and 3B)
+# - Figures 2C and 2D (Kaplan Meir curves for opioid and beta-blocker exposure)
 
 # ==============================================================================
 # Setup
@@ -658,6 +661,3 @@ message("  - output/figures/Figure_3B.png")
 sessionInfo()
 ```
 
-```{r session-info}
-sessionInfo()
-```

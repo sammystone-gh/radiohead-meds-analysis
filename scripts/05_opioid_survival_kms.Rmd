@@ -1,432 +1,261 @@
 ---
-title: "Opioid KMs"
+title: "05 - Opioid and Palliative Drug Survival Analysis"
 author: "Sammy Stone"
 date: "2024-12-04"
 output: html_document
 ---
-#load
 
-```{r}
+# Opioid and Palliative Drug Survival Analysis
+#
+# This script performs Kaplan-Meier survival analysis to assess the association
+# between opioid and palliative drug exposure and overall survival in early-stage
+# cancer patients (stages 0-III with no metastases).
+#
+# Key Analyses:
+# 1. Opioid exposure KM in stages 0-III (no metastases)
+# 2. Palliative bundle exposure KM in stages 0-III (no metastases)
+# 3. Venn diagram of opioid and palliative bundle overlap
+#
+# Outputs:
+# - Figures: Fig_3A.png, Fig_3C.png,
+#            Fig_3D.png
+
+# ==============================================================================
+# Setup
+# ==============================================================================
+```{r load-packages, message=FALSE, warning=FALSE}
 library(tidyverse)
-library(readr)
-library(openxlsx)
-library(ggvenn)
 library(survminer)
 library(survival)
 library(eulerr)
-```
-```{r}
-#set directories
-wd <- list()
-wd$main <- file.path("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD")
-wd$data <- file.path(wd$main, "data")
-wd$dataP <- file.path(wd$data, "processed")
-wd$output <- file.path(wd$main, "output_sammy")
-wd$script <- file.path(wd$main, "scripts_sammy")
-wd$opioid <- file.path(wd$output, "opioid KMs")
+library(here)
 ```
 
-```{r}
-pall_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/palliativebundledf.csv")
+```{r load-config}
+# Load project configuration
+source(here::here("R", "config.R"))
+```
+```{r load-data}
+# Load processed dataframes
+pall_df <- read.csv(palliative_bundle_df)
+sub_df <- read.csv(multivariate_df)
 
-sub_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
+message("✓ Loaded palliative bundle dataframe: ", nrow(pall_df), " patients")
+message("✓ Loaded multivariate dataframe: ", nrow(sub_df), " patients")
 ```
 
-#(50+) w/ sub classes of interest and stage and polypharmacy
-
-using sub_df from Radiohead_dfs.Rmd (file with polypharmacy, and drugs + sub classes of interest with at least 50 patients)
-
-```{r}
-dat <- sub_df %>%
-  select(-"X", -"Bronchodilator")
-```
-
-
-#Opioid Survival Under Different Conditions
-Goal- interrogate how baseline opioid use influences survival outcomes using KM curves 
-
-
-#Stage IV
-
-```{r}
-stage4 <- sub_df %>%
-  filter(stage == "iv")
-```
-
-
-```{r}
-km_model <- survfit(Surv(os, subject.dead.hospice) ~ Opioid, data = stage4)
-
-# Define custom colors for each drug class
-custom_colors <- c("orange", "deepskyblue")
-
-# Create the plot
-plot <- ggsurvplot(km_model, data = stage4, pval = TRUE, pval.size = 7,  risk.table.fontsize = 7, conf.int = TRUE, 
-                   risk.table = TRUE,
-                   legend.labs = c("No Opioid Exposure", "Opioid Exposure"),
-                   palette = custom_colors,
-                   legend.title = "") 
-
-# Apply theme_minimal with additional text modifications
-plot$plot <- plot$plot +
-  theme_minimal() +
-  theme(
-    legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 18), # Legend labels
-   legend.title = element_text(size = 20), 
-  ) +
-  xlab("Time (months)")
-
-# Apply theme_minimal for the risk table 
-plot$table <- plot$table + 
-  theme_minimal()  +
-  theme(
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 18), # Legend labels
-    plot.title = element_text(size = 20),
-  ) +
-  xlab("Time (months)")
-print(plot)
-```
-
-```{r}
-
-# Specify the output file path for each drug class
-output_file_png <- file.path(wd$output, "Opioidstage4.png")
-
-# Open a PNG device
-png(output_file_png, width = 8, height = 7, units = "in", res = 300)
-
-# Print the plot
-print(plot)
-
-# Close the PNG device
-dev.off()
-
-
-```
-
-
-#Opioids stages 0-III
-with 0 mets
-```{r}
+# ==============================================================================
+# Opioid Survival in Early Stage Disease (Stages 0-III, No Metastases)
+# ==============================================================================
+**Fig 3C**
+```{r opioid-early-stage}
+# Filter for stages 0-III with no metastatic disease
 zeromet <- sub_df %>%
- filter(subject.metastatic.disease == 0 & !stage == "iv") 
-```
+  filter(subject.metastatic.disease == 0 & !stage == "iv")
 
-```{r}
+message(sprintf("\nFiltered to stages 0-III, no metastases: %d patients", nrow(zeromet)))
+message(sprintf("  Opioid exposure: %d patients", sum(zeromet$Opioid == 1)))
+message(sprintf("  No opioid exposure: %d patients", sum(zeromet$Opioid == 0)))
+```
+```{r opioid-km-plot}
+# Fit Kaplan-Meier model
 km_model <- survfit(Surv(os, subject.dead.hospice) ~ Opioid, data = zeromet)
 
-# Define custom colors for each drug class
+# Define custom colors
 custom_colors <- c("orange", "deepskyblue")
 
-# Create the plot
-plot <- ggsurvplot(km_model, data = zeromet, pval = TRUE, pval.size = 7,  risk.table.fontsize = 7, conf.int = FALSE, 
-                   risk.table = TRUE,
-                   legend.labs = c("No Opioid Exposure", "Opioid Exposure"),
-                   palette = custom_colors,
-                   legend.title = "") 
+# Create the survival plot
+plot <- ggsurvplot(
+  km_model, 
+  data = zeromet, 
+  pval = TRUE, 
+  pval.size = 7,  
+  risk.table.fontsize = 7, 
+  conf.int = FALSE, 
+  risk.table = TRUE,
+  legend.labs = c("No Opioid Exposure", "Opioid Exposure"),
+  palette = custom_colors,
+  legend.title = ""
+)
 
-# Apply theme_minimal with additional text modifications
+# Apply theme and formatting to main plot
 plot$plot <- plot$plot +
   theme_minimal() +
   theme(
     legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 20), # Legend labels
-   legend.title = element_text(size = 20), 
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 20),
+    legend.title = element_text(size = 20)
   ) +
   xlab("Time (months)")
 
-# Apply theme_minimal for the risk table 
+# Apply theme to risk table
 plot$table <- plot$table + 
-  theme_minimal()  +
+  theme_minimal() +
   theme(
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 20), # Legend labels
-    plot.title = element_text(size = 20),
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 20),
+    plot.title = element_text(size = 20)
   ) +
   xlab("Time (months)")
 
 print(plot)
-
-# Specify the output file path for each drug class
-output_file_png <- file.path(wd$opioid, "Opioids_nomets2.png")
-
-# Open a PNG device
+```
+```{r save-opioid-plot}
+# Save the plot
+output_file_png <- here::here(figures, "Fig_3C.png")
 png(output_file_png, width = 8, height = 7, units = "in", res = 300)
-
-# Print the plot
 print(plot)
-
-# Close the PNG device
 dev.off()
 
+message("✓ Saved Fig_3C.png")
 ```
 
-
-Compare this to the palliative bundle (using pall_df) 
-
-
-#Palliative drugs only
-stages 0-3 no mets
-
-```{r}
+# ==============================================================================
+# Palliative Bundle Survival in Early Stage Disease (Stages 0-III, No Metastases)
+# ==============================================================================
+**Fig 3D**
+```{r palliative-early-stage}
+# Filter for stages 0-III with no metastatic disease
 earlystage2 <- pall_df %>%
   filter(stage %in% c("0-ii", "iii") & subject.metastatic.disease == 0)
+
+message(sprintf("\nFiltered to stages 0-III, no metastases: %d patients", nrow(earlystage2)))
+message(sprintf("  Palliative bundle exposure: %d patients", sum(earlystage2$palliative_drugs == 1)))
+message(sprintf("  No palliative bundle exposure: %d patients", sum(earlystage2$palliative_drugs == 0)))
 ```
-
-
-```{r}
+```{r palliative-km-plot}
+# Fit Kaplan-Meier model
 km_model <- survfit(Surv(os, subject.dead.hospice) ~ palliative_drugs, data = earlystage2)
 
-# Define custom colors for each drug class
+# Define custom colors
 custom_colors <- c("orange", "deepskyblue")
 
-# Create the plot
-plot <- ggsurvplot(km_model, data = earlystage2,  pval = TRUE, pval.size = 7,  risk.table.fontsize = 7,  conf.int = FALSE, 
-                   risk.table = TRUE,
-                   legend.labs = c("No Palliative Bundle Exposure", "Palliative Bundle Exposure"),
-                   legend.title = "",
-                   palette = custom_colors) 
+# Create the survival plot
+plot <- ggsurvplot(
+  km_model, 
+  data = earlystage2,  
+  pval = TRUE, 
+  pval.size = 7,  
+  risk.table.fontsize = 7,  
+  conf.int = FALSE, 
+  risk.table = TRUE,
+  legend.labs = c("No Palliative Bundle Exposure", "Palliative Bundle Exposure"),
+  legend.title = "",
+  palette = custom_colors
+)
 
-# Apply theme_minimal with additional text modifications
+# Apply theme and formatting to main plot
 plot$plot <- plot$plot +
   theme_minimal() +
   theme(
     legend.position = c(0.70, 0.2),
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 20), # Legend labels
-   legend.title = element_text(size = 20), 
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 20),
+    legend.title = element_text(size = 20)
   ) +
   xlab("Time (months)")
 
-# Apply theme_minimal for the risk table 
+# Apply theme to risk table
 plot$table <- plot$table + 
-  theme_minimal()  +
+  theme_minimal() +
   theme(
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 20), # Legend labels
-    plot.title = element_text(size = 20),
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 20),
+    plot.title = element_text(size = 20)
   ) +
   xlab("Time (months)")
+
 print(plot)
 ```
-
-
-```{r}
-# Specify the output file path for each drug class
-output_file_png <- file.path(wd$opioid, "PB_stages0to3nomet.png")
-
-# Open a PNG device
+```{r save-palliative-plot}
+# Save the plot
+output_file_png <- here::here(figures, "Fig_3D.png")
 png(output_file_png, width = 8, height = 7, units = "in", res = 300)
-
-# Print the plot
 print(plot)
-
-# Close the PNG device
 dev.off()
 
+message("✓ Saved Fig_3D.png")
 ```
 
-
-#Venn 
-```{r}
-head(pall_df)
-```
-subset for convenience
-```{r}
+# ==============================================================================
+# Overlap Between Opioid and Palliative Bundle Exposure
+# ==============================================================================
+```{r venn-data-prep}
+# Select relevant columns
 pall <- pall_df %>%
   select(record_id, Opioid, palliative_drugs)
-```
 
-```{r}
 # Count categories
 only_opioid <- sum(pall$Opioid == 1 & pall$palliative_drugs == 0)
 only_palliative <- sum(pall$Opioid == 0 & pall$palliative_drugs == 1)
 both <- sum(pall$Opioid == 1 & pall$palliative_drugs == 1)
 
-# Total counts including the overlap
-total_opioids <- only_opioid + both    
-total_palliative <- only_palliative + both 
-
-# Euler diagram using non-disjoint counts
-fit <- euler(c(
-  "Opioids" = total_opioids,
-  "Palliative Bundle" = total_palliative,
-  "Opioids&Palliative Bundle" = both
-))
-
+message("\nOverlap between opioids and palliative bundle:")
+message(sprintf("  Opioids only: %d patients", only_opioid))
+message(sprintf("  Palliative bundle only: %d patients", only_palliative))
+message(sprintf("  Both: %d patients", both))
+message(sprintf("  Neither: %d patients", nrow(pall) - only_opioid - only_palliative - both))
 ```
-
-```{r}
-# Plot with transparent fill and colored outlines
-plot(fit,
-     fills = NA,  # No fill color
-     edges = list(col = c("skyblue", "orange"), lwd = 2),  # Colored outlines
-     labels = list(font = 2),
-     quantities = TRUE,
-     main = "")
-```
-```{r}
-# Euler diagram using *disjoint* counts
+```{r euler-diagram}
+# Create Euler diagram using disjoint counts
 fit <- euler(c(
   "Opioids" = only_opioid,
   "Palliative Bundle" = only_palliative,
   "Opioids&Palliative Bundle" = both
 ))
 
+# Set font family
 par(family = "Arial") 
 
 # Plot with transparent fill and colored outlines
-p <- plot(fit,
-     fills = NA,  # No fill color
-     edges = list(col = c("skyblue", "orange"), lwd = 2),  # Colored outlines
-     labels = list(font = 2),
-     quantities = TRUE,
-     main = "")
+p <- plot(
+  fit,
+  fills = NA,
+  edges = list(col = c("skyblue", "orange"), lwd = 2),
+  labels = list(font = 2),
+  quantities = TRUE,
+  main = ""
+)
+
 p
 ```
-
-```{r}
-# Specify the output file path for each drug class
-output_file_png <- file.path(wd$output, "venn.png")
-
-# Open a PNG device
+```{r save-venn}
+# Save the Venn diagram
+output_file_png <- here::here(figures, "Fig_3A.png")
 png(output_file_png, width = 8, height = 6, units = "in", res = 300)
-
-# Print the plot
-p
-
-# Close the PNG device
+plot(
+  fit,
+  fills = NA,
+  edges = list(col = c("skyblue", "orange"), lwd = 2),
+  labels = list(font = 2),
+  quantities = TRUE,
+  main = ""
+)
 dev.off()
+
+message("✓ Saved Fig_3A.png")
 ```
 
-#Stacked KM
-```{r}
-stack_df <- pall_df %>%
-  select(-X) %>%
-  select(record_id, os, subject.dead.hospice, stage, subject.metastatic.disease, Opioid, palliative_drugs) #pall drugs includs laxitive, antiemetic, benzo, opioid not specificed
-
-#new cats 
-stacked_df <- stack_df %>%
-  mutate(category = case_when(
-    Opioid == 1 & palliative_drugs == 0 ~ "Opioids Only",
-    Opioid == 0 & palliative_drugs == 1 ~ "Palliative Only",
-    Opioid == 1 & palliative_drugs == 1 ~ "Opioids and Palliative Drugs",
-    Opioid == 0 & palliative_drugs == 0 ~ "No Opioids or Palliative Drugs"))
-
-stacked_df <- stacked_df %>%
-  mutate(category = factor(category,
-                              levels = c("No Opioids or Palliative Drugs", "Palliative Only", "Opioids Only", "Opioids and Palliative Drugs")))
+# ==============================================================================
+# Summary
+# ==============================================================================
+```{r summary}
+message("\n=== Opioid and Palliative Drug Survival Analysis Complete ===")
+message("\nOutput Files:")
+message("Figures:")
+message("  - output/figures/Fig_3C.png")
+message("  - output/figures/Fig_3D.png")
+message("  - output/figures/Fig_3A.png")
 ```
 
-```{r}
-km_model <- survfit(Surv(os, subject.dead.hospice) ~ category, data = stacked_df)
-
-# Define custom colors for each drug class
-custom_colors <- c( "grey", "orange", "deepskyblue", "blue")
-
-# Create the plot
-plot <- ggsurvplot(km_model, data = stacked_df, pval = FALSE, pval.size = 7,  risk.table.fontsize = 7, conf.int = TRUE, 
-                   risk.table = TRUE,
-                   legend.labs = c("No Opioids or Palliative Drugs", "Palliative Only", "Opioids Only", "Opioids and Palliative Drugs"),
-                   palette = custom_colors,
-                   legend.title = "") 
-
-# Apply theme_minimal with additional text modifications
-plot$plot <- plot$plot +
-  theme_minimal() +
-  theme(
-    legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 18), # Legend labels
-   legend.title = element_text(size = 20), 
-  ) +
-  xlab("Time (months)")
-
-# Apply theme_minimal for the risk table 
-plot$table <- plot$table + 
-  theme_minimal()  +
-  theme(
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 18), # Legend labels
-    plot.title = element_text(size = 20),
-  ) +
-  xlab("Time (months)")
-print(plot)
+# ==============================================================================
+# Session Info
+# ==============================================================================
+```{r session-info}
+sessionInfo()
 ```
-
-```{r}
-# Get pairwise comparisons with multiple comparison correction
-pairwise_test <- pairwise_survdiff(Surv(os, subject.dead.hospice) ~ category, 
-                                  data = stacked_df,
-                                  p.adjust.method = "holm")  # or "bonferroni", "BH", "fdr"
-
-print(pairwise_test)
-```
-
-#Stacked KM early stage
-
-```{r}
-early_stacked <- stacked_df %>%
- filter(subject.metastatic.disease == 0 & !stage == "iv") 
-```
-
-```{r}
-km_model <- survfit(Surv(os, subject.dead.hospice) ~ category, data = early_stacked)
-
-# Define custom colors for each drug class
-custom_colors <- c( "grey", "orange", "deepskyblue", "blue")
-
-# Create the plot
-plot <- ggsurvplot(km_model, data = early_stacked, pval = TRUE, pval.size = 7,  risk.table.fontsize = 7, conf.int = TRUE, 
-                   risk.table = TRUE,
-                   legend.labs = c("No Opioids or Palliative Drugs", "Palliative Only", "Opioids Only", "Opioids and Palliative Drugs"),
-                   palette = custom_colors,
-                   legend.title = "") 
-
-# Apply theme_minimal with additional text modifications
-plot$plot <- plot$plot +
-  theme_minimal() +
-  theme(
-    legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 18), # Legend labels
-   legend.title = element_text(size = 20), 
-  ) +
-  xlab("Time (months)")
-
-# Apply theme_minimal for the risk table 
-plot$table <- plot$table + 
-  theme_minimal()  +
-  theme(
-    axis.text = element_text(size = 18),  # Axis tick labels
-    axis.title = element_text(size = 20), # Axis titles
-    legend.text = element_text(size = 18), # Legend labels
-    plot.title = element_text(size = 20),
-  ) +
-  xlab("Time (months)")
-print(plot)
-```
-
-```{r}
-# Get pairwise comparisons with multiple comparison correction
-pairwise_test <- pairwise_survdiff(Surv(os, subject.dead.hospice) ~ category, 
-                                  data = early_stacked,
-                                  p.adjust.method = "holm")  # or "bonferroni", "BH", "fdr"
-
-print(pairwise_test)
-```
-```
-

@@ -12,8 +12,8 @@ output: html_document
 # 2. Polypharmacy frequency distribution (lollipop chart)
 
 # Key Outputs:
-# - KM_polypharmacy.png (Kaplan-Meier curve)
-# - polypharmacy_lollipop_chart.png (frequency distribution)
+# - Figure 1B KM_polypharmacy.png (Kaplan-Meier curve)
+# - Figure 1A polypharmacy_lollipop_chart.png (frequency distribution)
 
 # ==============================================================================
 # Setup
@@ -52,7 +52,7 @@ message(sprintf("  Median polypharmacy: %.0f", median(polydf$polypharmacy)))
 # ==============================================================================
 # Kaplan-Meier Survival Analysis by Polypharmacy Status
 # ==============================================================================
-
+**Fig 1B**
 ```{r km-polypharmacy, fig.width=10, fig.height=9}
 # Create survival object
 surv_object <- Surv(time = polydf$os, event = polydf$subject.dead.hospice)
@@ -107,21 +107,23 @@ km_plot$table <- km_plot$table +
 print(km_plot)
 
 # Save plot
-ggsave(
-  here::here("output", "figures", "KM_polypharmacy.png"),
-  plot = km_plot$plot,
+png(
+  here::here("output", "figures", "Fig_1B.png"),
   width = 10,
   height = 9,
-  dpi = 300
+  units = "in",
+  res = 300
 )
+print(km_plot) 
+dev.off()
 
-message("✓ Saved KM_polypharmacy.png")
+message("✓ Saved Fig_1B.png")
 ```
 
 # ==============================================================================
 # Polypharmacy Frequency Distribution (Lollipop Chart)
 # ==============================================================================
-
+**Fig 1A**
 ```{r polypharmacy-frequency}
 # Calculate frequency distribution
 poly_freq <- sub_df %>%
@@ -171,16 +173,19 @@ lollipop_plot <- ggplot(poly_freq, aes(x = polypharmacy, y = freq)) +
 print(lollipop_plot)
 
 # Save plot
-ggsave(
-  here::here("output", "figures", "polypharmacy_lollipop_chart.png"),
-  plot = lollipop_plot,
+png(
+  here::here("output", "figures", "Fig_1A.png"),
   width = 8,
   height = 6,
-  dpi = 300
+  units = "in",
+  res = 300
 )
-
-message("✓ Saved polypharmacy_lollipop_chart.png")
+print(lollipop_plot) 
+dev.off()
+message("✓ Saved Fig_1A.png") 
 ```
+
+
 
 # ==============================================================================
 # Summary Statistics

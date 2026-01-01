@@ -1,148 +1,166 @@
 ---
-title: "RADIOHEAD meds demographics"
+title: "06 - Demographics"
 author: "Sammy Stone"
 date: "2024-09-30"
 output: html_document
 ---
 
-Goal: Generate summaries of radiohead demographics for entire cohort + sub-cohorts of interest, then perform chi square test to assess differences 
+# Demographic Comparisons
+#
+# This script generates demographic summary tables for the RADIOHEAD cohort,
+# comparing patient characteristics by opioid and beta-blocker exposure.
+#
+# Key Analyses:
+# 1. Demographic summary by opioid exposure (with chi-square tests)
+# 2. Demographic summary by beta-blocker exposure (with chi-square tests)
+#
+# Outputs:
+# - Tables: Table_S3.xlsx (opioid demographics), Table_S5.xlsx (beta-blocker demographics)
 
-Data: using the dem_df from radiohead_dfs.Rmd using sub_df with sex column pulled from dem_df (new- 05/14/25)
-
-#Pre-processing
-Load packages
-```{r}
+# ==============================================================================
+# Setup
+# ==============================================================================
+```{r load-packages, message=FALSE, warning=FALSE}
 library(tidyverse)
-library(readr)
-library(writexl)
-library(tableone)
 library(gtsummary)
+library(here)
+library(cardx)
 ```
 
-Establish working directories 
-
-```{r}
-wd <- list()
-wd$main <- file.path("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD")
-wd$data <- file.path(wd$main, "data")
-wd$dataP <- file.path(wd$data, "processed")
-wd$output <- file.path(wd$main, "output_sammy")
-wd$script <- file.path(wd$main, "scripts")
+```{r load-config}
+# Load project configuration
+source(here::here("R", "config.R"))
 ```
 
-Load data
-```{r}
-sub_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
-sub_df <- sub_df %>%
-  select(-X, "Bronchodilator")
-dem_df <- read.csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_demograpphic_df.csv")
-dem_df <- dem_df %>%
-  select(-X)
+```{r load-data}
+# Load processed dataframes
+sub_df <- read.csv(multivariate_df)
+
+dem_df <- read.csv(demographic_df)
+
+message("✓ Loaded multivariate dataframe: ", nrow(sub_df), " patients")
+message("✓ Loaded demographic dataframe: ", nrow(dem_df), " patients")
 ```
 
-Update cancer column to match the multivariable analysis ## ignore in update
-```{r}
-dem_df <- dem_df %>%
-  mutate(Cancer = ifelse(meddra.disease.preferred.name %in% 
-  c("Non-small cell lung cancer", "Malignant melanoma", "Renal cell carcinoma", "Bladder cancer", "Small cell lung cancer"),
-  meddra.disease.preferred.name,
-  "Other")) 
-```
-
-
-##May 2025 Update 
-
-```{r}
-head(dem_df)
-
+```{r merge-sex}
+# Extract sex column from demographic dataframe
 sex_col <- dem_df %>%
-  select(record_id, subject.sex) 
+  select(record_id, subject.sex)
 
-head(sex_col)
-nrow(sex_col)
-```
-
-create updated dem df by merging sex column from old dem_df with sub_df
-```{r}
+# Merge sex column with multivariate dataframe
 dem <- left_join(sub_df, sex_col, by = "record_id")
 
-View(dem)
+message("✓ Merged sex column into analysis dataframe")
 ```
 
-#JUNE 2025 Update
-#pan-cancer vs opioid-- restrict opioids vs cohort without opioids
-
-
-```{r}
-
-dem <- dem %>%
+# ==============================================================================
+# Opioid Exposure Demographics
+# ==============================================================================
+```{r opioid-demographics}
+# Create factor labels for opioid exposure
+dem_opioid <- dem %>%
   mutate(Opioid = factor(Opioid,
-                                levels = c(0, 1),
-                                labels = c("No Opioid Exposure", "Opioid Exposure")))
-# Create a summary table
-comparison_tbl <- dem %>%
- tbl_summary(
-    include = c(subject.age, subject.sex, cancer_agreggate, stage, polypharmacy, prior.targeted_therapy, subject.metastatic.disease, Treatment),
+                         levels = c(0, 1),
+                         labels = c("No Opioid Exposure", "Opioid Exposure")))
+
+message("\nOpioid exposure distribution:")
+message(sprintf("  No opioid exposure: %d patients", sum(dem$Opioid == 0)))
+message(sprintf("  Opioid exposure: %d patients", sum(dem$Opioid == 1)))
+
+# Create summary table with statistical tests
+opioid_tbl <- dem_opioid %>%
+  tbl_summary(
+    include = c(subject.age, subject.sex, cancer_agreggate, stage, polypharmacy, 
+                prior.targeted_therapy, subject.metastatic.disease, Treatment),
     by = Opioid, 
     missing = "no",
-    label = list(subject.age ~ "Patient Age",
-                 cancer_agreggate ~ "Cancer",
-                 polypharmacy ~ "Cumulative Drug Class Exposures",
-                 stage ~ "Stage",
-                 prior.targeted_therapy ~"Prior Targeted Therapy (Y/N)",
-                 subject.metastatic.disease ~"Metastatic Disease (Y/N)",
-                 subject.sex ~ "Patient Sex")
+    label = list(
+      subject.age ~ "Patient Age",
+      cancer_agreggate ~ "Cancer",
+      polypharmacy ~ "Cumulative Drug Class Exposures",
+      stage ~ "Stage",
+      prior.targeted_therapy ~ "Prior Targeted Therapy (Y/N)",
+      subject.metastatic.disease ~ "Metastatic Disease (Y/N)",
+      subject.sex ~ "Patient Sex"
+    )
   ) %>%
   add_p() %>%                          
   bold_p(t = 0.05) %>%                  
-  add_q(method = "bonferroni")         
+  add_q(method = "bonferroni")
 
 # Print the table
-comparison_tbl
-    
+print(opioid_tbl)
 ```
 
-```{r}
-# Convert to huxtable and write to Excel
-comparison_tbl %>%
- as_hux_xlsx(file.path(wd$output,"/Demographic Comparisons/opioid_demographics2.xlsx"))
+```{r save-opioid-table}
+# Save as Excel file
+opioid_tbl %>%
+  as_hux_xlsx(here::here(tables, "Table_S3.xlsx"))
+
+message("✓ Saved Table_S3.xlsx (opioid demographics)")
 ```
 
-#BB's
-```{r}
-
-dem <- dem %>%
+# ==============================================================================
+# Beta-Blocker Exposure Demographics
+# ==============================================================================
+```{r bb-demographics}
+# Create factor labels for beta-blocker exposure
+dem_bb <- dem %>%
   mutate(Beta_Blockers = factor(Beta_Blockers,
                                 levels = c(0, 1),
                                 labels = c("No Beta Blocker Exposure", "Beta Blocker Exposure")))
 
-# Create a summary table
-comparison_tbl <- dem %>%
- tbl_summary(
-    include = c(subject.age, subject.sex, cancer_agreggate, stage, polypharmacy, prior.targeted_therapy, subject.metastatic.disease, Treatment),
+message("\nBeta-blocker exposure distribution:")
+message(sprintf("  No beta-blocker exposure: %d patients", sum(dem$Beta_Blockers == 0)))
+message(sprintf("  Beta-blocker exposure: %d patients", sum(dem$Beta_Blockers == 1)))
+
+# Create summary table with statistical tests
+bb_tbl <- dem_bb %>%
+  tbl_summary(
+    include = c(subject.age, subject.sex, cancer_agreggate, stage, polypharmacy, 
+                prior.targeted_therapy, subject.metastatic.disease, Treatment),
     by = Beta_Blockers, 
     missing = "no",
-    label = list(subject.age ~ "Patient Age",
-                 cancer_agreggate ~ "Cancer",
-                 polypharmacy ~ "Polypharmacy (continuous)",
-                 stage ~ "Stage",
-                 prior.targeted_therapy ~"Prior Targeted Therapy (Y/N)",
-                 subject.metastatic.disease ~"Metastatic Disease (Y/N)",
-                 subject.sex ~ "Patient Sex")
+    label = list(
+      subject.age ~ "Patient Age",
+      cancer_agreggate ~ "Cancer",
+      polypharmacy ~ "Polypharmacy (continuous)",
+      stage ~ "Stage",
+      prior.targeted_therapy ~ "Prior Targeted Therapy (Y/N)",
+      subject.metastatic.disease ~ "Metastatic Disease (Y/N)",
+      subject.sex ~ "Patient Sex"
+    )
   ) %>%
   add_p() %>%                          
   bold_p(t = 0.05) %>%                  
-  add_q(method = "bonferroni")         
+  add_q(method = "bonferroni")
 
 # Print the table
-comparison_tbl
-    
+print(bb_tbl)
 ```
 
+```{r save-bb-table}
+# Save as Excel file
+bb_tbl %>%
+  as_hux_xlsx(here::here(tables, "Table_S5.xlsx"))
 
-```{r}
-# Convert to huxtable and write to Excel
-comparison_tbl %>%
- as_hux_xlsx(file.path(wd$output,"bb_demographics2.xlsx"))
+message("✓ Saved Table_S5.xlsx (beta-blocker demographics)")
 ```
 
+# ==============================================================================
+# Summary
+# ==============================================================================
+```{r summary}
+message("\n=== Demographic Analysis Complete ===")
+message("\nOutput Files:")
+message("Tables:")
+message("  - output/tables/Table_S3.xlsx (opioid demographics)")
+message("  - output/tables/Table_S5.xlsx (beta-blocker demographics)")
+```
+
+# ==============================================================================
+# Session Info (for reproducibility)
+# ==============================================================================
+```{r session-info}
+sessionInfo()
+```
