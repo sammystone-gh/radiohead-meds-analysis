@@ -1,1062 +1,222 @@
 ---
-title: "polypharmacy"
+title: "02 - Polypharmacy Analysis"
 author: "Sammy Stone"
 date: "2024-11-18"
 output: html_document
 ---
-```{r}
-library(paletteer)
-library(ggplot2)
+
+# Polypharmacy Analysis (Figure 1)
+
+# This script analyzes polypharmacy patterns in the cohort:
+# 1. Kaplan-Meier survival curves by polypharmacy status (≥5 vs <5 drug classes)
+# 2. Polypharmacy frequency distribution (lollipop chart)
+
+# Key Outputs:
+# - KM_polypharmacy.png (Kaplan-Meier curve)
+# - polypharmacy_lollipop_chart.png (frequency distribution)
+
+# ==============================================================================
+# Setup
+# ==============================================================================
+
+```{r setup, message=FALSE, warning=FALSE}
+library(here)
 library(tidyverse)
-library(gridExtra)
 library(survival)
 library(survminer)
-library(openxlsx)
+
+# Load project configuration
+source(here::here("R", "config.R"))
 ```
 
-set wds: 
+# ==============================================================================
+# Load Data
+# ==============================================================================
 
-```{r}
-wd <- list()
-wd$main <- file.path("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD")
-wd$data <- file.path(wd$main, "data")
-wd$dataP <- file.path(wd$data, "processed")
-wd$output <- file.path(wd$main, "output_sammy")
-wd$script <- file.path(wd$main, "scripts_sammy")
-```
+```{r load-data}
+# Load multivariate dataframe
+sub_df <- read.csv(paths$multivariate_df)
 
-Using sub_df and poly_df from radiohead_dfs
+# Load polypharmacy dataframe
+polydf <- read.csv(paths$polypharmacy_df)
 
-```{r}
-#load sub_df
-sub_df <- read_csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_multivariate_df.csv")
-sub_df <- sub_df %>%
-  select(-"...1")
-
-#load polydf 
-polydf <- read_csv("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_polypharmacy_df.csv")
+# Filter to match cohort (exclude UNK stage)
 polydf <- polydf %>%
-  select(-"...1")
+  filter(stage != "UNK")
 
-#load datmeta
-
-dat_meta <- read.csv(file.path(wd$dataP, "round2/df.clean15.postMS_2024-08-22.csv"))
-
-```
-match patient counts 
-```{r}
-polydf <- polydf %>%
-  filter(!stage=="UNK")
-nrow(polydf)
+message(sprintf("✓ Loaded %d patients for analysis", nrow(polydf)))
+message(sprintf("  Mean polypharmacy: %.2f", mean(polydf$polypharmacy)))
+message(sprintf("  Median polypharmacy: %.0f", median(polydf$polypharmacy)))
 ```
 
-mean and median calculations
-```{r}
-nrow(sub_df) 
-print(mean(sub_df$polypharmacy))
-print(median(sub_df$polypharmacy))
-```
+# ==============================================================================
+# Kaplan-Meier Survival Analysis by Polypharmacy Status
+# ==============================================================================
 
-
-first- top drug classes: 
-```{r}
-top_drugs <- sub_df %>%
-  select(12:41) #remove corticosteroids
-
-colSums(top_drugs == 1)
-
-#top ten are: Cardiovascular (601), HLD_TX (443), Anti-coagulants (424), Anti-emetic (389), Proton Pump Inhibitor(288), Anti-pyretics (344), Opioids(336), Anti-depressants (212), Antianxiety (199), Diabetes (196)
-
-top_ten <- sub_df %>%
-  select(record_id, Cardiovascular, HLD_Tx, Anti_coagulant, Anti_emetic, Anti_pyretic, Opioid, Proton_Pump_Inhibitor, Anti_depressant, Anti_anxiety, Diabetes) 
-
-#check 
-#View(top_ten)
-#top_ten <- top_ten %>%
-  ##select(-record_id)
-```
-```{r}
-#using top ten with record id
-drug_long <- top_ten %>%
-  pivot_longer(cols = 2:11,  
-               names_to = "drug", 
-               values_to = "use") %>%
-  filter(use == 1)  # Filter to only include patients who use the drug
-View(drug_long)
-```
-
-
-```{r}
-top_ten <- top_ten %>%
- select(-record_id)  
-
-class_counts <- colSums(top_ten == 1)
-#View(class_counts)
-
-class_percent <- class_counts / 1024 * 100 
-#iew(class_percent)
-```
-
-
-```{r}
-# Combine counts and percentages into a dataframe
-drug_summary <- data.frame(
-  drug = names(class_counts),
-  count = class_counts,
-  percent = class_percent
-)
-#rename 
-drug_summary <- drug_summary %>%
-  mutate(drug = case_when(
-    drug == "HLD_Tx" ~ "Hyperlipidemia Tx",
-    drug == "Anti_coagulant" ~ "Anti-coagulants",
-    drug == "Anti_emetic"  ~ "Anti-emetics",
-    drug == "Anti_pyretic" ~ "Anti-pyretics",
-    drug == "Anti_anxiety" ~ "Anti-anxiety",
-    drug == "Proton_Pump_Inhibitor" ~ "Proton Pump Inhibitors",
-    drug == "Anti_depressant" ~ "Anti-depressants",
-    drug == "Opioid" ~ "Opioids",
-    TRUE ~ drug
-  ))
-
-# Order by percent in increasing order and explicitly reorder 'drug' by 'percent'
-drug_summary <- drug_summary %>%
-  arrange(percent) %>%
-  mutate(drug = factor(drug, levels = (unique(drug))))
-
-# View the result to confirm
-View(drug_summary)
-
-# Check the levels of 'drug'
-levels(drug_summary$drug)
-```
-
-
-#bar plot
-```{r}
-# Create the bar plot
-bar <- ggplot(drug_summary, aes(x = drug, y = percent)) +
-  geom_bar(stat = "identity", fill = "deepskyblue") +
-  coord_flip() +  # Flip coordinates to make it horizontal
-  theme_minimal() +
-  labs(
-    y = "Patient Exposure (%)", 
-    x = NULL
-  ) +
-  theme(
-    axis.text = element_text(size = 20, color = "black"),  # Axis tick labels
-    axis.title = element_text(size = 25, color = "black") # Axis titles
-  ) + scale_y_continuous(limits = c(0, 100))
-
-print(bar)
-```
-
-
-```{r}
-# Specify the output file path for PNG
-output_file_png <- file.path(wd$output, "drugclassbarplot.png")
-
-# Open a PNG device
-png(output_file_png, width = 8, height = 6, units = "in", res = 300)
-
-# Print the plot
-print(bar)
-
-# Close the PNG device
-dev.off()
-```
-
-
-###############################################################################
-
-```{r}
-median(polydf$polypharmacy)
-```
-
-
-# KM curve
-
-```{r}
+```{r km-polypharmacy, fig.width=10, fig.height=9}
 # Create survival object
-surv_object <- Surv(time = polydf$os, event = polydf$subject.dead.hospice)   
+surv_object <- Surv(time = polydf$os, event = polydf$subject.dead.hospice)
 
 # Fit Kaplan-Meier curve
 fit <- survfit(surv_object ~ polypharmacy_binary, data = polydf)
 
-# Extract values
-cox_mode <- coxph(Surv(os, subject.dead.hospice) ~ polypharmacy_binary, data = polydf)
+# Cox model for p-value
+cox_model <- coxph(Surv(os, subject.dead.hospice) ~ polypharmacy_binary, data = polydf)
 
-# Define custom colors for each drug class
+# Define custom colors
 custom_colors <- c("orange", "deepskyblue")
 
 # Create the plot
-plot <- ggsurvplot(fit, data = polydf, pval = TRUE, pval.size = 9,  risk.table.fontsize = 8, conf.int = TRUE, 
-                   risk.table = TRUE,
-                   legend.labs = c("< 5 drug classes", "≥ 5 drug classes"),
-                   palette = custom_colors,
-                    legend.title = "")  # Set the custom color palette
-  
-plot$plot <- plot$plot +
+km_plot <- ggsurvplot(
+  fit,
+  data = polydf,
+  pval = TRUE,
+  pval.size = 9,
+  risk.table = TRUE,
+  risk.table.fontsize = 8,
+  conf.int = TRUE,
+  legend.labs = c("< 5 drug classes", "≥ 5 drug classes"),
+  palette = custom_colors,
+  legend.title = ""
+)
+
+# Customize main plot
+km_plot$plot <- km_plot$plot +
   theme_minimal() +
   theme(
     legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 20),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-   legend.title = element_text(size = 25), 
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25),
+    legend.text = element_text(size = 25),
+    legend.title = element_text(size = 25)
   ) +
   xlab("Time (months)")
 
-# Apply theme_minimal for the risk table 
-plot$table <- plot$table + 
-  theme_minimal()  +
-  theme(
-    axis.text = element_text(size = 25),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-    plot.title = element_text(size = 25),
-  ) +
-  xlab("Time (months)")
-```
-
-
-```{r}
-# Specify the output file path for PNG
-output_file_png <- file.path(wd$output, "KMs/KM_polypharmacy.png")
-
-# Open a PNG device
-png(output_file_png, width = 10, height = 9, units = "in", res = 300)
-
-# Print the plot
-print(plot)
-
-# Close the PNG device
-dev.off()
-```
-
-```{r}
-print(plot)
-```
-
-KM curve but for lung subcohort
-```{r}
-#create lung subcohort 
-lung.poly <- polydf %>%
-  filter(meddra.disease.preferred.name == "Non-small cell lung cancer")
-```
-
-```{r}
-# Create survival object
-surv_object <- Surv(time = lung.poly$os, event = lung.poly$subject.dead.hospice)   
-
-# Fit Kaplan-Meier curve
-fit <- survfit(surv_object ~ polypharmacy_binary, data = lung.poly)
-
-# Extract values
-cox_mode <- coxph(Surv(os, subject.dead.hospice) ~ polypharmacy_binary, data = lung.poly)
-
-# Define custom colors for each drug class
-custom_colors <- c("orange", "deepskyblue")
-
-# Create the plot
-plot <- ggsurvplot(fit, data = lung.poly, pval = TRUE, pval.size = 9,  risk.table.fontsize = 8, conf.int = TRUE, 
-                   risk.table = TRUE,
-                   legend.labs = c("< 5 drug classes", "≥ 5 drug classes"),
-                   palette = custom_colors,
-                    legend.title = "")  # Set the custom color palette
-  
-plot$plot <- plot$plot +
+# Customize risk table
+km_plot$table <- km_plot$table +
   theme_minimal() +
   theme(
-    legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 20),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-   legend.title = element_text(size = 25), 
+    axis.text = element_text(size = 25),
+    axis.title = element_text(size = 25),
+    legend.text = element_text(size = 25),
+    plot.title = element_text(size = 25)
   ) +
   xlab("Time (months)")
 
-# Apply theme_minimal for the risk table 
-plot$table <- plot$table + 
-  theme_minimal()  +
-  theme(
-    axis.text = element_text(size = 25),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-    plot.title = element_text(size = 25),
-  ) +
-  xlab("Time (months)")
-```
-
-
-```{r}
-# Specify the output file path for PNG
-output_file_png <- file.path(wd$output, "KMs/KM_lung_polypharmacy.png")
-
-# Open a PNG device
-png(output_file_png, width = 10, height = 9, units = "in", res = 300)
-
-# Print the plot
-print(plot)
-
-# Close the PNG device
-dev.off()
-```
-
-KM curve but for KM subcohort
-```{r}
-#create melanoma subcohort 
-mel.poly <- polydf %>%
-  filter(meddra.disease.preferred.name == "Malignant melanoma")
-```
-
-```{r}
-# Create survival object
-surv_object <- Surv(time = mel.poly$os, event = mel.poly$subject.dead.hospice)   
-
-# Fit Kaplan-Meier curve
-fit <- survfit(surv_object ~ polypharmacy_binary, data = mel.poly)
-
-# Extract values
-cox_mode <- coxph(Surv(os, subject.dead.hospice) ~ polypharmacy_binary, data = mel.poly)
-
-# Define custom colors for each drug class
-custom_colors <- c("orange", "deepskyblue")
-
-# Create the plot
-plot <- ggsurvplot(fit, data = mel.poly, pval = TRUE, pval.size = 9,  risk.table.fontsize = 8, conf.int = TRUE, 
-                   risk.table = TRUE,
-                   legend.labs = c("< 5 drug classes", "≥ 5 drug classes"),
-                   palette = custom_colors,
-                    legend.title = "")  # Set the custom color palette
-  
-plot$plot <- plot$plot +
-  theme_minimal() +
-  theme(
-    legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 20),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-   legend.title = element_text(size = 25), 
-  ) +
-  xlab("Time (months)")
-
-# Apply theme_minimal for the risk table 
-plot$table <- plot$table + 
-  theme_minimal()  +
-  theme(
-    axis.text = element_text(size = 25),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-    plot.title = element_text(size = 25),
-  ) +
-  xlab("Time (months)")
-```
-
-
-```{r}
-# Specify the output file path for PNG
-output_file_png <- file.path(wd$output, "KMs/KM_melanoma_polypharmacy.png")
-
-# Open a PNG device
-png(output_file_png, width = 10, height = 9, units = "in", res = 300)
-
-# Print the plot
-print(plot)
-
-# Close the PNG device
-dev.off()
-```
-
-ICI only 
-KM curve but for ICI subcohort
-```{r}
-#create melanoma subcohort 
-ici.poly <- polydf %>%
-  filter(line.1.therapy %in% c("pd1-pdl1", "ctla4+pd1-pdl1"))
-```
-
-```{r}
-# Create survival object
-surv_object <- Surv(time = ici.poly$os, event = ici.poly$subject.dead.hospice)   
-
-# Fit Kaplan-Meier curve
-fit <- survfit(surv_object ~ polypharmacy_binary, data = ici.poly)
-
-# Extract values
-cox_mode <- coxph(Surv(os, subject.dead.hospice) ~ polypharmacy_binary, data = ici.poly)
-
-# Define custom colors for each drug class
-custom_colors <- c("orange", "deepskyblue")
-
-# Create the plot
-plot <- ggsurvplot(fit, data = ici.poly, pval = TRUE, pval.size = 9,  risk.table.fontsize = 8, conf.int = TRUE, 
-                   risk.table = TRUE,
-                   legend.labs = c("< 5 drug classes", "≥ 5 drug classes"),
-                   palette = custom_colors,
-                    legend.title = "")  # Set the custom color palette
-  
-plot$plot <- plot$plot +
-  theme_minimal() +
-  theme(
-    legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 20),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-   legend.title = element_text(size = 25), 
-  ) +
-  xlab("Time (months)")
-
-# Apply theme_minimal for the risk table 
-plot$table <- plot$table + 
-  theme_minimal()  +
-  theme(
-    axis.text = element_text(size = 25),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-    plot.title = element_text(size = 25),
-  ) +
-  xlab("Time (months)")
-```
-
-
-```{r}
-# Specify the output file path for PNG
-output_file_png <- file.path(wd$output, "KMs/KM_ici_polypharmacy.png")
-
-# Open a PNG device
-png(output_file_png, width = 10, height = 9, units = "in", res = 300)
-
-# Print the plot
-print(plot)
-
-# Close the PNG device
-dev.off()
-```
-
-KM but chemo only
-KM curve but for chemo subcohort
-```{r}
-#create melanoma subcohort 
-chemo.poly <- polydf %>%
-  filter(line.1.therapy %in% c("chemo+pd1-pdl1", "chemo+ctla4+pd1-pdl1"))
-```
-
-```{r}
-# Create survival object
-surv_object <- Surv(time = chemo.poly$os, event = chemo.poly$subject.dead.hospice)   
-
-# Fit Kaplan-Meier curve
-fit <- survfit(surv_object ~ polypharmacy_binary, data = chemo.poly)
-
-# Extract values
-cox_mode <- coxph(Surv(os, subject.dead.hospice) ~ polypharmacy_binary, data = chemo.poly)
-
-# Define custom colors for each drug class
-custom_colors <- c("orange", "deepskyblue")
-
-# Create the plot
-plot <- ggsurvplot(fit, data = chemo.poly, pval = TRUE, pval.size = 9,  risk.table.fontsize = 8, conf.int = TRUE, 
-                   risk.table = TRUE,
-                   legend.labs = c("< 5 drug classes", "≥ 5 drug classes"),
-                   palette = custom_colors,
-                    legend.title = "")  # Set the custom color palette
-  
-plot$plot <- plot$plot +
-  theme_minimal() +
-  theme(
-    legend.position = c(0.8, 0.2),
-    axis.text = element_text(size = 20),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-   legend.title = element_text(size = 25), 
-  ) +
-  xlab("Time (months)")
-
-# Apply theme_minimal for the risk table 
-plot$table <- plot$table + 
-  theme_minimal()  +
-  theme(
-    axis.text = element_text(size = 25),  # Axis tick labels
-    axis.title = element_text(size = 25), # Axis titles
-    legend.text = element_text(size = 25), # Legend labels
-    plot.title = element_text(size = 25),
-  ) +
-  xlab("Time (months)")
-```
-
-
-```{r}
-# Specify the output file path for PNG
-output_file_png <- file.path(wd$output, "KMs/KM_chemo_polypharmacy.png")
-
-# Open a PNG device
-png(output_file_png, width = 10, height = 9, units = "in", res = 300)
-
-# Print the plot
-print(plot)
-
-# Close the PNG device
-dev.off()
-```
-
-
-
-
-
-Chemo Only
-4. Polypharmacy Stats 
-
-```{r}
-mean(polydf$polypharmacy)
-median(polydf$polypharmacy)
-```
-
-
-Density Plots
-
-
-```{r}
-summary(polydf$subject.age)
-```
-
-Median/mean is 69. Let's create a new variable Age_Cat and separate patients into over/under 69 
-
-```{r}
-age_pdf <- polydf %>%
-  mutate(agecat = ifelse(subject.age >= 69, "69+", "Under 69"))
-```
-
-sanity checks
-```{r}
-table(age_pdf$agecat)
-```
-
-```{r}
-agecomp <- age_pdf %>%
-  select(subject.age, agecat)
-
-View(agecomp)
-```
-
-
-
-#Cancer Density Plots
-
-```{r}
-#plot kernel (density) plot
-d1 <- polydf %>%
-  ggplot( aes(x=polypharmacy)) +
-    geom_density(color= "deepskyblue", size = 1.5) + #outline only, thicker line
-    ggtitle("Pan-cancer") +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(size=10)
-    )
-d1
-```
-
-NSCLC 
-```{r}
-#filter by NSCLC 
-nsclc_pdf <- polydf %>%
-  filter(meddra.disease.preferred.name == "Non-small cell lung cancer")
-```
-
-Melanoma 
-```{r}
-#filter by melanoma
-mel_pdf <- polydf %>%
-  filter(meddra.disease.preferred.name == "Malignant melanoma")
-```
-
-```{r}
-write.csv(mel_pdf, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output_sammy/Top Ten Comparisons/melanomapolydf.csv", row.names = FALSE)
-```
-
-#Cancer Density Plots
-Need to first combine dfs into a single dataset
-Then can plot overlayed with ggplot2
-
-```{r}
-#Add grouping variable to each subdf 
-polydf_pancancer <- polydf %>%
-  mutate(group = "Pan-Cancer")
-nsclc_pdf <- nsclc_pdf %>%
-  mutate(group = "NSCLC")
-mel_pdf <- mel_pdf %>%
-  mutate(group = "Melanoma")
-```
-
-
-```{r}
-#combine datasets
-triple_df <- bind_rows(polydf_pancancer, nsclc_pdf, mel_pdf)
-```
-
-plot 
-
-```{r}
-# Plot the combined data
-overlayed_density <- triple_df %>%
-  ggplot(aes(x = polypharmacy, color = group)) +
-  geom_density(size = 1.5, position = "identity") +
-  scale_color_manual(values = c("Melanoma" = "orange",
-                               "Pan-Cancer" = "darkgrey", 
-                               "NSCLC" = "deepskyblue")) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.title = element_blank(), # remove legend title
-    legend.text = element_text(size = 22),
-     axis.text.x = element_text(size = 22), # increase x-axis text size
-    axis.text.y = element_text(size = 22), # increase y-axis text size
-    axis.title.x = element_text(size = 25), # increase x-axis title size
-    axis.title.y = element_text(size = 25)  # increase y-axis title size
-  ) +
-  labs(
-    x = "Number of Drug Classes", 
-    y = "Density"
-  ) +
-  scale_y_continuous(limits = c(0, 0.2),
-  expand = expansion(mult = c(0, 0.05))  # 5% headroom above tallest point
+# Display plot
+print(km_plot)
+
+# Save plot
+ggsave(
+  here::here("output", "figures", "KM_polypharmacy.png"),
+  plot = km_plot$plot,
+  width = 10,
+  height = 9,
+  dpi = 300
 )
 
-# Display the plot
-plot(overlayed_density)
+message("✓ Saved KM_polypharmacy.png")
 ```
 
-```{r}
-ggsave(filename = file.path(wd$output, "/density plots/density plot by cancer.pdf"), plot = overlayed_density, device = "pdf", height = 6, width = 8) 
-```
-
-
-man-whitney wilcox
-
-```{r}
-cancer_anova <- aov(polypharmacy ~ group, 
-                             data = triple_df)
-summary(cancer_anova)
-```
-```{r}
-TukeyHSD(cancer_anova)
-```
-melanoma medians differs significantly from others
-
-now kruskal wallis (more appropriate)
-
-```{r}
-kruskal_results <- kruskal.test(polypharmacy ~ group, 
-                             data = triple_df)
-
-print(kruskal_results)
-MKR_df <- data.frame(
-  Statistic = kruskal_results$statistic,
-  p_value = kruskal_results$p.value
-)
-
-```
-```{r}
-# Save the result as an Excel file
-write.xlsx(MKR_df, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output_sammy/density plots/pancancer_kruskal_test_result.xlsx")
-```
-
-#Chemo vs ICI only Density Plot
-
-```{r}
-ici_pdf <- polydf %>%
-  filter(!line.1.therapy %in% c("chemo+pd1-pdl1", "chemo+ctla4+pd1-pdl1"))
-```
-
-```{r}
-chemo_pdf <- polydf %>% 
-  filter(line.1.therapy %in% c("chemo+pd1-pdl1", "chemo+ctla4+pd1-pdl1")) 
-
-```
-
-```{r}
-ici_pdf <- ici_pdf %>%
-  mutate(group = "ICI Only")
-chemo_pdf <- chemo_pdf %>%
-  mutate(group = "ICI + Chemo")
-```
-
-```{r}
-write.csv(ici_pdf, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output_sammy/Top Ten Comparisons/icipolydf.csv", row.names = FALSE)
-write.csv(chemo_pdf, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output_sammy/Top Ten Comparisons/chemopolydf.csv", row.names = FALSE)
-```
-
-```{r}
-treatments_df <- bind_rows(ici_pdf, chemo_pdf)
-treatments_df$group <- factor(treatments_df$group, levels = c("ICI Only", "ICI + Chemo"))
-```
-
-```{r}
-# Plot the combined data
-tx_density <- treatments_df %>%
-  ggplot(aes(x = polypharmacy, color = group)) +
-  geom_density(size = 1.5, position = "identity") +
-  scale_color_manual(values = c("ICI Only" = "orange",
-                               "ICI + Chemo" = "deepskyblue")) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 22),
-    legend.title = element_blank(), # remove legend title
-    axis.text.x = element_text(size = 22), # increase x-axis text size
-    axis.text.y = element_text(size = 22), # increase y-axis text size
-    axis.title.x = element_text(size = 25), # increase x-axis title size
-    axis.title.y = element_text(size = 25)  # increase y-axis title size
-  ) +
-  labs(
-    x = "Number of Drug Classes", 
-    y = "Density"
-  ) +
-scale_y_continuous(limits = c(0, 0.2), expand = expansion(mult = c(0, 0.05)))  # 5% headroom above tallest point
-
-# Display the plot
-plot(tx_density)
-```
-
-```{r}
-ggsave(filename = file.path(wd$output, "/density plots/density plot by treatment.pdf"), plot = tx_density, device = "pdf", height = 6, width =8)
-```
-
-```{r}
-#quick mean/median check
-mean(chemo_pdf$polypharmacy)
-median(chemo_pdf$polypharmacy)
-mean(ici_pdf$polypharmacy)
-median(ici_pdf$polypharmacy)
-
-#data is right skewed, medians are better representations
-```
-
-
-stats test
-```{r}
-tx_wilcox <- wilcox.test(polypharmacy ~ group, 
-                         data = treatments_df, 
-                         exact = FALSE)
-tx_wilcox
-
-# Convert the result to a data frame
-wilcox_results <- data.frame(
-  Statistic = tx_wilcox$statistic,
-  p_value = tx_wilcox$p.value
-)
-
-# Save the result as an Excel file
-write.xlsx(wilcox_results, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output_sammy/density plots/treatment_wilcox_test_result.xlsx")
-```
-
-#Density by Stage
-
-create 3 dfs for each stage bin
-```{r}
-low_stage <- polydf %>%
-  filter(stage %in% c("0", "i", "ii"))
-
-stage3 <- polydf %>% 
-  filter(stage == "iii")
-
-stage4 <- polydf %>% 
-  filter(stage == "iv")
-```
-
-add identifiers
-```{r}
-low_stage <- low_stage %>%
-  mutate(group = "0-II")
-stage3 <- stage3 %>%
-  mutate(group = "III")
-stage4 <- stage4 %>%
-  mutate(group = "IV")
-```
-
-```{r}
-stage_df <- bind_rows(low_stage, stage3, stage4)
-```
-
-plot 
-```{r}
-# Plot the combined data
-overlayed_stage <- stage_df %>%
-  ggplot(aes(x = polypharmacy, color = group)) +
-  geom_density(size = 1.5, position = "identity") +
-  scale_color_manual(values = c("0-II" = "darkgrey",
-                               "III" = "deepskyblue", 
-                               "IV" = "orange")) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 22),
-    legend.title = element_blank(), # remove legend title
-    axis.text.x = element_text(size = 22), # increase x-axis text size
-    axis.text.y = element_text(size = 22), # increase y-axis text size
-    axis.title.x = element_text(size = 25), # increase x-axis title size
-    axis.title.y = element_text(size = 25)  # increase y-axis title size
-  ) +
-  labs(
-    x = "Number of Drug Classes", 
-    y = "Density"
-  ) +
-scale_y_continuous(
-  limits = c(0, 0.2),
-  expand = expansion(mult = c(0, 0.05)))  # 5% headroom above tallest point
-
-
-# Display the plot
-plot(overlayed_stage)
-```
-
-```{r}
-ggsave(filename = file.path(wd$output, "/density plots/density plot by stage.pdf"), plot = overlayed_stage, device = "pdf", height = 6, width =8)
-```
-
-
-stats 
-```{r}
-stage_anova <- aov(polypharmacy ~ group, 
-                             data = stage_df)
-summary(stage_anova)
-```
-
-```{r}
-kruskal.test(polypharmacy ~ group, 
-                             data = stage_df)
-
-
-```
-
-#By sex 
-
-```{r}
-#pull in subject.sex from dat_meta 
-sex_only <- dat_meta %>%
-  select(subject.id, subject.sex) %>%
-  rename(record_id = subject.id)
-```
-
-```{r}
-sex_df <- left_join(polydf, sex_only, by = "record_id")
-```
-
-new dfs
-```{r}
-female_df <- sex_df %>%
-  filter(subject.sex == "female")
-
-male_df <- sex_df %>%
-  filter(subject.sex == "male")
-```
-
-label dfs
-```{r}
-female_df <- female_df %>%
-  mutate(group = "Female")
-male_df <- male_df %>%
-  mutate(group = "Male")
-```
-
-```{r}
-sex_plot_df <- bind_rows(female_df, male_df)
-```
-
-```{r}
-# Plot the combined data
-sex_density <- sex_plot_df %>%
-  ggplot(aes(x = polypharmacy, color = group)) +
-  geom_density(size = 1.5, position = "identity") +
-  scale_color_manual(values = c("Female" = "orange",
-                               "Male" = "deepskyblue")) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 22),
-    legend.title = element_blank(), #remove legend title
-    axis.text.x = element_text(size = 22), # increase x-axis text size
-    axis.text.y = element_text(size = 22), # increase y-axis text size
-    axis.title.x = element_text(size = 25), # increase x-axis title size
-    axis.title.y = element_text(size = 25)  # increase y-axis title size
-    
-  ) +
-  labs(
-    x = "Number of Drug Classes", 
-    y = "Density"
-  ) +
-scale_y_continuous(
-  limits = c(0, 0.2),
-  expand = expansion(mult = c(0, 0.05)))  # 5% headroom above tallest point
-
-
-# Display the plot
-plot(sex_density)
-```
-
-
-```{r}
-ggsave(filename = file.path(wd$output, "/density plots/density plot by sex.pdf"), plot = sex_density, device = "pdf", height = 6, width =8)
-```
-
-
-
-
-stats test
-```{r}
-sex_wilcox <- wilcox.test(polypharmacy ~ group, 
-                         data = sex_plot_df, 
-                         exact = FALSE)
-sex_wilcox
-```
-#By Age 
-
-Age binned as over/under 70
-
-```{r}
-age_catdf2 <- polydf %>%
-  mutate(age_cat = case_when(
-    subject.age < 70 ~ "Under 70",
-    subject.age >= 70  ~ "70+"
-  ))
-```
-
-sanity checks 
-```{r}
-unique(age_catdf2$age_cat)
-table(age_catdf2$age_cat)
-```
-
-```{r}
-un_70 <- age_catdf2 %>%
-  filter(age_catdf2$age_cat == "Under 70")
-
-plus_70 <- age_catdf2 %>%
-  filter(age_catdf2$age_cat == "70+")
-
-```
-
-add identifiers
-```{r}
-un_70 <- un_70 %>%
-  mutate(group = "Under 70")
-plus_70 <- plus_70 %>%
-  mutate(group = "70+")
-
-```
-
-```{r}
-write.csv(un_70, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output_sammy/Top Ten Comparisons/under70polydf.csv", row.names = FALSE)
-write.csv(plus_70, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output_sammy/Top Ten Comparisons/over70polydf.csv", row.names = FALSE)
-```
-
-```{r}
-age_grouped2 <- bind_rows(un_70, plus_70)
-age_grouped2$group <- factor(age_grouped2$group, levels = c("Under 70", "70+"))
-
-```
-
-```{r}
-# Plot the combined data
-age_density2 <- age_grouped2 %>%
-  ggplot(aes(x = polypharmacy, color = group)) +
-  geom_density(size = 1.5, position = "identity") +
-  scale_color_manual(
-    values = c("Under 70" = "orange", "70+" = "deepskyblue"),
-    labels = c("Under 70", "70+"))  +  # Set legend label order
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 22),
-    legend.title = element_blank(), # remove legend title
-    axis.text.x = element_text(size = 22), # increase x-axis text size
-    axis.text.y = element_text(size = 22), # increase y-axis text size
-    axis.title.x = element_text(size = 25), # increase x-axis title size
-    axis.title.y = element_text(size = 25)  # increase y-axis title size
-  ) +
-  labs(
-    x = "Number of Drug Classes", 
-    y = "Density"
-  ) +
-scale_y_continuous(
-  limits = c(0, 0.2),
-  expand = expansion(mult = c(0, 0.05))  # 5% headroom above tallest point
-)
-
-# Display the plot
-plot(age_density2)
-```
-```{r}
-#ggsave(filename = file.path(wd$output, "/density plots/density plot by age2.pdf"), plot = age_density2, device = "pdf", height = 6, width =8)
-```
-
-```{r}
-age_wilcox2 <- wilcox.test(polypharmacy ~ group, 
-                         data = age_grouped2, 
-                         exact = FALSE)
-age_wilcox2 
-
-
-age_wilcox2_results <- data.frame(
-  Statistic = age_wilcox2$statistic,
-  p_value = age_wilcox2$p.value
-)
-
-#write.xlsx(age_wilcox2_results, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output_sammy/density plots/age_wilcox_test_result.xlsx")
-
-```
-
-
-#Polypharmacy Frequency Plot
-
-```{r}
-poly_pie_2 <- sub_df %>%
-  select(record_id, polypharmacy)
-```
-
-```{r}
-poly_sum2 <- poly_pie_2 %>%
+# ==============================================================================
+# Polypharmacy Frequency Distribution (Lollipop Chart)
+# ==============================================================================
+
+```{r polypharmacy-frequency}
+# Calculate frequency distribution
+poly_freq <- sub_df %>%
   select(record_id, polypharmacy) %>%
   group_by(polypharmacy) %>%
-  summarize(count = n(), .groups = "drop")
+  summarize(count = n(), .groups = "drop") %>%
+  mutate(
+    freq = (count / 1024) * 100,
+    polypharmacy = as.factor(polypharmacy)
+  )
 
+# Define custom color gradient
+custom_colors <- c(
+  "darkorange3", "darkorange", "orange2", "orange1", "orange",
+  "skyblue", "lightskyblue", "skyblue1", "skyblue2",
+  "deepskyblue", "deepskyblue1", "deepskyblue2", "deepskyblue3",
+  "dodgerblue", "dodgerblue2", "dodgerblue3", "royalblue3",
+  "dodgerblue4", "royalblue4", "midnightblue"
+)
+
+# Create lollipop chart
+lollipop_plot <- ggplot(poly_freq, aes(x = polypharmacy, y = freq)) +
+  geom_segment(
+    aes(x = polypharmacy, xend = polypharmacy, y = 0, yend = freq),
+    color = "darkgrey",
+    linewidth = 0.5
+  ) +
+  geom_point(aes(color = polypharmacy), size = 5) +
+  scale_color_manual(values = custom_colors) +
+  labs(
+    x = "Number of Drug Classes",
+    y = "Frequency (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text = element_text(size = 18, color = "black"),
+    axis.title.x = element_text(size = 18, color = "black", margin = margin(t = 20)),
+    axis.title.y = element_text(size = 18, color = "black", margin = margin(r = 20)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "darkgrey")
+  ) +
+  ylim(0, 15)
+
+# Display plot
+print(lollipop_plot)
+
+# Save plot
+ggsave(
+  here::here("output", "figures", "polypharmacy_lollipop_chart.png"),
+  plot = lollipop_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+message("✓ Saved polypharmacy_lollipop_chart.png")
 ```
 
-```{r}
-poly_freq2 <- poly_sum2 %>%
-  mutate(freq = (count / 1024) *100)
+# ==============================================================================
+# Summary Statistics
+# ==============================================================================
+
+```{r summary-stats}
+# Polypharmacy distribution
+poly_summary <- sub_df %>%
+  summarize(
+    n = n(),
+    mean = mean(polypharmacy),
+    median = median(polypharmacy),
+    sd = sd(polypharmacy),
+    min = min(polypharmacy),
+    max = max(polypharmacy)
+  )
+
+print(poly_summary)
+
+# Polypharmacy binary breakdown
+poly_binary <- polydf %>%
+  group_by(polypharmacy_binary) %>%
+  summarize(
+    n = n(),
+    percent = n() / nrow(polydf) * 100
+  )
+
+print(poly_binary)
+
+message("\n=== Polypharmacy Analysis Complete ===")
+message(sprintf("Total patients: %d", nrow(polydf)))
+message(sprintf("Patients with ≥5 drug classes: %d (%.1f%%)",
+                sum(polydf$polypharmacy_binary),
+                sum(polydf$polypharmacy_binary) / nrow(polydf) * 100))
 ```
 
-```{r}
-# Ensure polypharmacy is a factor
-poly_freq2 <- poly_freq2 %>%
-  mutate(polypharmacy = as.factor(polypharmacy))
+```{r session-info}
+sessionInfo()
 ```
-
-
-
-```{r}
-custom_colors <- c("darkorange3", "darkorange", "orange2", "orange1", "orange", "skyblue", "lightskyblue", "skyblue1", "skyblue2", "deepskyblue", "deepskyblue1", "deepskyblue2", "deepskyblue3", "dodgerblue", "dodgerblue2", "dodgerblue3", "royalblue3", "dodgerblue4", "royalblue4", "midnightblue")
-```
-
-
-```{r}
-freq <- ggplot(poly_freq2, aes(x = polypharmacy, y = freq)) +
-  geom_segment(aes(x = polypharmacy, xend = polypharmacy, y = 0, yend = freq), color = "darkgrey", size = 0.5) +  # Create thicker lines
-  geom_point(aes(color = polypharmacy), size = 5) +  # Create the points
- scale_color_manual(values = custom_colors) +
-  labs(x = "Polypharmacy (Continuous)", y = "Frequency (%)", color = "Polypharmacy") +  # Adjust axis and legend titles
-  theme_minimal() + 
-  theme(legend.position = "none") + 
-theme(axis.text = element_text(size = 18, color = "black"), 
-        axis.title.x = element_text(size = 18, color = "black", margin = margin(t = 20)),  # Move x-axis title farther from plot
-        axis.title.y = element_text(size = 18, color = "black", margin = margin(r = 20)),  # Move y-axis title farther from plot
-        panel.grid.major = element_blank(),  # Remove major grid lines
-        panel.grid.minor = element_blank(),  # Remove minor grid lines
-        axis.line = element_line(color = "darkgrey")) +  # Keep axis lines
-  ylim(0, 15)  # Set the y-axis limit
-freq
-
-ggsave(filename = file.path(wd$output, "polypharmacylollipop_chart.png"), plot = freq, width = 8, height = 6, dpi = 300)
-```
-

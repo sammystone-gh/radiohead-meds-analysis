@@ -1,48 +1,46 @@
 ---
-title: "Radiohead DFs"
+title: "01_data_processing.Rmd"
 author: "Sammy Stone"
 date: "2024-06-12"
 output: html_document
 embed-resources: true
 ---
+# RADIOHEAD Data Processing
+#
+# This script processes medication and clinical data to create analysis-ready dataframes:
+# - Merges harmonized medications with primary RADIOHEAD dataframe
+# - Filters to systemic medications
+# - Calculates polypharmacy 
+# - Assigns medication subclassses
+#
+# Key Outputs:
+# - RADIOHEAD_multivariate_df.csv (main analysis dataframe, n=1024)
+# - RADIOHEAD_systemicdrugs.csv
+# - RADIOHEAD_polypharmacy_df.csv
+# - RADIOHEAD_subclasses.csv
+# - individual_drugs_df.csv
+# - RADIOHEAD_demographic_df.csv
 
-#### Loading packages
-
+# ==============================================================================
+# Setup
+# ==============================================================================
+## Load packages
 ```{r}
 library(here)
 library(tidyverse)
 library(readxl)
 library(ggplot2)
-library(reshape2)
 library(stringr)
-library(ggvenn)
-library(ggsignif)
 library(dplyr)
 library(readr)
 library(readxl)
-library(ComplexHeatmap)
-library(viridis)
-library(survival)
-library(survminer)
-library(broom)
-library(writexl)
 library(openxlsx)
 ```
-
-
-#### Directories
-
+# Load project configuration
 ```{r}
-wd <- list()
-wd$main <- "/Users/samanthastone/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD"
-wd$data <- file.path(wd$main, "data")
-wd$dataP <- file.path(wd$data, "processed")
-wd$output <- file.path(wd$main, "output_sammy")
-wd$script <- file.path(wd$main, "scripts_sammy")
+source(here::here("R", "config.R"))
 ```
-
-#### Load functions-From Zaki
-
+## Utility functions
 ```{r}
 theme_custom <- 
   theme_bw() +
@@ -55,44 +53,52 @@ simpleCap <- function(x) {
   paste(toupper(substring(s, 1,1)), substring(s, 2),
         sep="", collapse=" ")
 }
-
-
 # https://stackoverflow.com/questions/2261079/how-can-i-trim-leading-and-trailing-white-space
 # Returns string without leading or trailing white space
 trim <- function (x) gsub("^\\s+|\\s+$", "", x)
-
 ```
 
-# Mergedf-From Zaki
 
-dataframe that combines meds dataframe (per patient harmonized) with clinical information (df clean)
+# ==============================================================================
+# Load Raw Data
+# ==============================================================================
+
+```{r load-data}
+# Harmonized medications (from ZW)
+man_h7 <- read_excel(here::here("data", "raw", "Per_patient_harmonized_round_10.xlsx"))
+
+# Clinical metadata
+dat_meta <- read.csv(here::here("data", "raw", "df.clean15.postMS_2024-08-22.csv"))
+
+message(sprintf("✓ Loaded %d medication records", nrow(man_h7)))
+message(sprintf("✓ Loaded %d patient records", nrow(dat_meta)))
+```
+# Merged_df-From ZW
+
+generate "merged_df" a dataframe that combines meds dataframe (per patient harmonized) with clinical information (df clean)
 
 ```{r}
-man_h7 <- read_excel("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output/Per_patient_harmonized_round_10.xlsx")
-
-#dat_meta <- read.csv(file.path(wd$dataP, "round2/df.clean152024-05-16.csv"))
-dat_meta <- read.csv(file.path(wd$dataP, "round2/df.clean15.postMS_2024-08-22.csv"))
 head(man_h7)
 head(dat_meta)
-
+#Prepare medication data
 df1 <- man_h7 %>%
   select(record_id, Revised_Classification) %>%
   mutate(Revised_Classification = gsub("-", "_", Revised_Classification),
          Revised_Classification = gsub(" ", "_", Revised_Classification))
-  #View(dat_meta)
+  View(dat_meta)
 ```
 
 
 ```{r}
+#Select clinical data
 df2 <- dat_meta %>%
 select(subject.id, meddra.disease.preferred.name, os, subject.dead.hospice, subject.age, line.1.therapy, prior.targeted_therapy, subject.metastatic.disease, irae.any, irae.severe, stage)
   
-# Merge data frames based on record_id and subject.id
+# Merge data frames according to patient id
 merged_df1 <- left_join(df1, df2, by = c("record_id" = "subject.id"))
 
 head(merged_df1)
 ```
-
 
 ```{r}
 # Create binary columns for each unique value in Class_1
@@ -100,7 +106,7 @@ unique_Revised_Classification <- unique(df1$Revised_Classification)
 ```
 
 ```{r}
-# Merge data frames based on record_id and subject.i
+# Integrate dataframes
 merged_df1 <- left_join(df1, df2, by = c("record_id" = "subject.id")) %>%
 
   mutate(
@@ -114,7 +120,6 @@ head(merged_df1)
 ```
 
 
-
 ```{r}
 merged_df <- merged_df1 %>%
   distinct() %>%
@@ -123,23 +128,32 @@ merged_df <- merged_df1 %>%
 
 colnames(merged_df)
 ```
+
 ```{r}
+#Exclude NA values
 merged_df <- merged_df %>%
   filter(stage != "NA")
 ```
 
 ```{r}
-write.csv(merged_df, file.path("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_1070_meds_df.csv"))
-```
+message(sprintf("✓ Created dataframe with %d patients and %d drug classes", 
+                nrow(merged_df), ncol(merged_df) - 11))
 
+# Save merged dataframe
+write.csv(
+  merged_df,
+  here::here("data", "processed", "RADIOHEAD_1070_meds_df.csv"),
+  row.names = FALSE
+)
+
+message("✓ Saved RADIOHEAD_1070_meds_df.csv") 
+
+#1 patient has been removed by collaborator in data cleanup, now 1069 pts instead of 1070
+```
 
 ## Merged df2
 Merged df but with individual Drugs
 ```{r}
-man_h7 <- read_excel("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/output/Per_patient_harmonized_round_10.xlsx")
-
-dat_meta <- read.csv(file.path(wd$dataP, "round2/df.clean15.postMS_2024-08-22.csv"))
-
 head(man_h7)
 head(dat_meta)
 df1_2 <- man_h7 %>%
@@ -215,28 +229,34 @@ meddra.disease.preferred.name,
 ```
 
 ```{r}
-write.csv(individual_drugs, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/individual_drugs_df.csv", row.names = FALSE)
+# Save individual drugs dataframe
+write.csv(
+  individual_drugs,
+  here::here("data", "processed", "individual_drugs_df.csv"),
+  row.names = FALSE
+)
 ```
 
-#Cohort Df
-Merged_df patients with no missing death event (subject.dead.hospice)
+# ==============================================================================
+# Create Cohort and Systemic Medications Dataframe
+# ==============================================================================
+Cohort df = Merged_df patients with no missing death event (subject.dead.hospice)
 1028 patients in newest df update
 ```{r}
+# Filter to patients with known death events
 cohort <- merged_df %>%
   filter(!is.na(subject.dead.hospice))
 nrow(cohort)
 ```
 
-#Corticosteroid DF
+Corticosteroid DF
 Create corticosteroid column with corticosteroids unclear + corticosteroids systemic combined
 ```{r}
+# Combine corticosteroid columns
 merged_w_cort <- cohort %>%
   mutate(Corticosteroids = if_else(Corticosteroid_systemic == 1 | Corticosteroid_unclear == 1, 1, 0))
 
 #View(merged_w_cort)
-
-#check
-table(merged_w_cort$Corticosteroid_systemic, merged_w_cort$Corticosteroid_unclear, merged_w_cort$Corticosteroids)
 ```
 
 #Systemic DF
@@ -245,64 +265,74 @@ filter out drug classes we're not interested in
 #filter out drug classes we're not interested in--no vitamins/supplements or non systemic drugs
 
 systemic_df <-  merged_w_cort %>%
-         select(-c("Vitamin", "NA", "Drop_NA", "Supplement", "Cancer", "Anesthetic_non_systemic", "Anti_glaucoma_non_systemic", "Cholinergic_non_systemic", "Mast_cell_stabilizer_non_systemic", "Supplement_non_systemic", "Antibiotics_non_systemic", "Corticosteroid_inhaled", "Anti_histamine_non_systemic", "Decongestant_non_systemic", "Anti_histamine_non_systemic", "Corticosteroid_non_systemic", "Anti_fungal_non_systemic"))
+         select(-c("Vitamin", "NA", "Drop_NA", "Supplement", "Cancer", "Anesthetic_non_systemic", "Anti_glaucoma_non_systemic", "Cholinergic_non_systemic", "Mast_cell_stabilizer_non_systemic", "Supplement_non_systemic", "Antibiotics_non_systemic", "Corticosteroid_inhaled", "Anti_histamine_non_systemic", "Decongestant_non_systemic", "Anti_histamine_non_systemic", "Corticosteroid_non_systemic", "Anti_fungal_non_systemic", "Bronchodilator", "Cannabinoid"))
 ```
 
 ```{r}
-#save for later
-write.csv(systemic_df, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_systemicdrugs.csv", row.names = FALSE)
-```
+# Save systemic drugs dataframe
+write.csv(
+  systemic_df,
+  here::here("data", "processed", "RADIOHEAD_systemicdrugs.csv"),
+  row.names = FALSE
+)
 
-#Polypharmacydf
+message(sprintf("✓ Saved RADIOHEAD_systemicdrugs.csv with %d patients", nrow(systemic_df)))
+```
+# ==============================================================================
+# Calculate Polypharmacy
+# ==============================================================================
+
+#Calculate polypharmacy
 ```{r}
+# Prepare for polypharmacy calculation-- exclude duplicate medications
 polypharmacydf <- systemic_df %>%
-  select(-c("Cannabinoid", "Bronchodilator", "Corticosteroid_unclear", "Corticosteroids"))
-```
+  select(-c("Corticosteroid_unclear", "Corticosteroids"))
 
-```{r}
-#to return these columns later: 
-
+# Save these columns for later
 excluded_df <- systemic_df %>%
-  select(record_id, Cannabinoid, Bronchodilator, Corticosteroid_unclear, Corticosteroids)
-```
+  select(record_id, Corticosteroid_unclear, Corticosteroids)
 
-Create polypharmacy column
-
-```{r}
+#Calculate polypharmacy
 polydf <- polypharmacydf %>%
-  mutate(polypharmacy = rowSums(polypharmacydf[12:81]))
+  mutate(
+    polypharmacy = rowSums(polypharmacydf[12:81]),
+    polypharmacy_binary = polypharmacy >= 5
+  )
 ```
 
-drugs used in polypharmacy calculation
 ```{r}
+# Save list of drug classes used in polypharmacy calculation 
 polypharmacy_drugclasses <- as.data.frame(names(polypharmacydf[12:81]))
+colnames(polypharmacy_drugclasses) <- "DrugClass"
 
-colnames(polypharmacy_drugclasses) <- "DrugClass" 
+write.xlsx(
+  polypharmacy_drugclasses,
+  here::here("output", "tables", "Drugs_Used_in_Polypharmacy_Calculation.xlsx")
+)
 
-View(polypharmacy_drugclasses) 
-
-filepath <- file.path(wd$output, "Table_S2.xlsx")
-
-#write.xlsx(polypharmacy_drugclasses, filepath)
+message("✓ Saved Drugs_Used_in_Polypharmacy_Calculation.xlsx (polypharmacy drug classes)")
 ```
 
 ```{r}
-#binary polypharmacy column 
-polydf$polypharmacy_binary <- polydf$polypharmacy >= 5
-```
-save polypharmacy_df 
+# Save polypharmacy dataframe
+write.csv(
+  polydf,
+  here::here("data", "processed", "RADIOHEAD_polypharmacy_df.csv"),
+  row.names = FALSE
+)
 
-```{r}
-write.csv(polydf, "~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_polypharmacy_df.csv")
+message(sprintf("✓ Saved RADIOHEAD_polypharmacy_df.csv"))
+message(sprintf("  Mean polypharmacy: %.2f", mean(polydf$polypharmacy)))
+message(sprintf("  Median polypharmacy: %.0f", median(polydf$polypharmacy)))
 ```
-#Sub-Class DF
-Incorporating Sub Classes 
+
+# ==============================================================================
+# Create Subclass Columns
+# ==============================================================================
 
 Using merged_df2, we'll identify relevant sub-classes from individual medications. Then we'll merge with merged_df
 
-1. Assign classes- see RADIOHEAD top ten meds sub classes.xlsx for details
-
-
+#Assign classes
 ```{r}
 #mental health
 benzodiazepines <- c("Clonazepam", "Alprazolam", "Lorazepam", "Diazepam", "Temazepam", "Chlordiazepoxide", "Clobazam")
@@ -368,7 +398,7 @@ anti_platelet <- c("Aspirin", "Clopidogrel", "Cilostazol", "Ticagrelor", "Prasug
 heparin_LMWH <- c("Enoxaparin", "Heparin", "Dalteparin", "Fondaparinux")
 ```
 
-2. Incorporate subclasses in merged_df2
+Incorporate subclasses in merged_df2
 ```{r}
 subdf <- merged_df2 %>%
   mutate(Benzodiazepines = ifelse(rowSums(select(., all_of(benzodiazepines))) > 0, 1, 0),
@@ -397,7 +427,7 @@ subdf <- merged_df2 %>%
         
 ```
 
-3. remove non subclass columns from subdf
+remove non subclass columns from subdf
 
 ```{r}
 ##only subclass script below
@@ -414,29 +444,36 @@ subdf <- subdf %>%
 colnames(subdf)
 ```
 
-6. merge subdf with all med classes (use polydf or systemic_df from radiohead univariate plot.rmd)
+merge subdf with all med classes 
 
 ```{r}
 cohortsub <- left_join(polydf, subdf, by = "record_id") 
 ```
-7. remove na, vitamins, and supplements columns for analyses- already done in systemic_df
+remove na, vitamins, and supplements columns for analyses- already done in systemic_df
 
 Sanity check 
-
 ```{r}
-#colSums(scdf[, 100:121])
 colnames(cohortsub)
 ```
-save this as a df for reproducibility 
+
 ```{r}
-write.csv(cohortsub, "RADIOHEAD_subclasses.csv")
+# Save subclasses dataframe
+write.csv(
+  cohortsub,
+  here::here("data", "processed", "RADIOHEAD_subclasses.csv"),
+  row.names = FALSE
+)
+
+message("✓ Saved RADIOHEAD_subclasses.csv with subclass columns")
 ```
 
-#multivariate DF and univariate analysis df 
-using cohortsub from radiohead sub classes 
+
+# ==============================================================================
+# Create Final Multivariate Analysis Dataframe
+# ==============================================================================
 
 ```{r}
-#first combine cancer stages 0-1
+#Combine cancer stages 0-1
 cohortsub <- cohortsub %>%
   mutate(stage2 = case_when(
     stage %in% c("0","i", "ii") ~"0-ii",
@@ -445,26 +482,27 @@ cohortsub <- cohortsub %>%
 ```
 
 ```{r}
-#remove columns not included in analysis
+#Remove columns not included in multivariate analysis
 cohortstage <- cohortsub %>%
   select(-c("stage", "irae.any", "irae.severe", "polypharmacy_binary")) %>%
   rename(stage = stage2)
 ```
 
 ```{r}
-#reorder df to put polypharmacy at the top, add back in columns omitted from polypharmacy calculation, then get drug class counts 
-
+#Reorder df to put polypharmacy at the top, add back in columns omitted from polypharmacy calculation, then get drug class counts 
 cohort_ordered <- cohortstage %>%
   select(1:8, stage, polypharmacy, 9:88)
 ```
 
 ```{r}
+#Join back excluded columns
 poly_cohort <- left_join(cohort_ordered, excluded_df, by = "record_id")
 ```
 
-restrict df to drug classes with at least 50 patients on them
 ```{r}
-colsums <- colSums(poly_cohort[11:92])
+#Restrict df to drug classes with at least 50 patients on them 
+
+colsums <- colSums(poly_cohort[11:90])
 
 sub <- names(colsums[colsums >= 50])
 
@@ -472,18 +510,17 @@ sub_df <- poly_cohort %>%
  select(1:10, all_of(sub))
 ```
 
-exclude patients where stage = UNK 
 
 ```{r}
+#exclude patients where stage = UNK 
 sub_df <- sub_df %>% 
   filter(!(stage == "UNK"))
 
 ```
-now have 1024 patients for use in multivariate analysis 
-
-combine treatments: 
+*now have 1024 patients for use in multivariate analysis 
 
 ```{r}
+#Combine treatments
 sub_df <- sub_df %>%
   mutate(Treatment = case_when(
     line.1.therapy == "chemo+pd1-pdl1" ~ "chemo+ICI",
@@ -493,20 +530,22 @@ sub_df <- sub_df %>%
 unique(sub_df$Treatment) 
 ```
 
-checks
+
 ```{r}
+#Sanity checks
 check_df <- sub_df %>%
   select(record_id, Treatment, line.1.therapy)
 View(check_df)
 ```
 
 ```{r}
+#Remove old line.1.therapy columns
 sub_df <- sub_df %>%
   select(-line.1.therapy)
 ```
 
 ```{r}
-#add new cancer column + sub-class column 
+#Add new cancer column + sub-class column 
 sub_df <- sub_df %>%
 mutate(cancer_agreggate = ifelse(meddra.disease.preferred.name %in% 
 c("Non-small cell lung cancer", "Malignant melanoma", "Renal cell carcinoma", "Bladder cancer", "Small cell lung cancer"),
@@ -517,57 +556,30 @@ meddra.disease.preferred.name,
 reorder columns 
 ```{r}
 sub_df <- sub_df %>%
-  select(1:5, Treatment, cancer_agreggate, 6:42)
+  select(1:5, Treatment, cancer_agreggate, 6:41)
 head(sub_df)
 colnames(sub_df)
 ```
-
-
-########################
-This is the main dataframe for distribution
 ```{r}
-write.csv(sub_df, file = "RADIOHEAD_multivariate_df.csv")
-```
-####################### 
+# Save main multivariate dataframe
+write.csv(
+  sub_df,
+  here::here("data", "processed", "RADIOHEAD_multivariate_df.csv"),
+  row.names = FALSE
+)
 
-#let's add irae data into systemic_df 
-
-```{r}
-irae_cols <- dat_meta %>%
-  select(subject.id, 95:111)
+message(sprintf("✓ Saved RADIOHEAD_multivariate_df.csv with %d patients", nrow(sub_df)))
+message(sprintf("  Included %d drug classes with ≥50 patients", ncol(sub_df) - 10))
 ```
 
-```{r}
-irae_df <- left_join(systemic_df, irae_cols, by = c("record_id" = "subject.id"))
-```
-
-or into polydf
-
-```{r}
-irae_df2 <- left_join(polydf, irae_cols, by = c("record_id" = "subject.id"))
-```
-
-
-
-##ICI only dataframe 
-(from systemic_df, 
-
-```{r}
-ici_df <- systemic_df %>%
-  filter(!line.1.therapy %in% c("chemo+pd1-pdl1", "chemo+ctla4+pd1-pdl1"))
-```
-sanity checks:
-```{r}
-table(ici_df$line.1.therapy)
-nrow(ici_df) #removed 229 pts
-```
-
-
+# ==============================================================================
+# Create Demographic Dataframe
+# ==============================================================================
 
 #Demographic DF
 
 ```{r}
-#import additional information from dat_meta 
+#Import additional information from dat_meta 
 df3 <- dat_meta %>%
 select(subject.id, subject.sex, subject.ethnicity, subject.race, stage, meddra.disease.preferred.name, os, subject.dead.hospice, subject.age, line.1.group, line.1.therapy, prior.targeted_therapy, subject.metastatic.disease, irae.any, irae.severe)
   
@@ -616,12 +628,6 @@ dem_df <- dem_df %>%
   mutate(Corticosteroids = if_else(Corticosteroid_systemic == 1 | Corticosteroid_unclear == 1, 1, 0))
 ```
 
-```{r}
-#restrict to only columns of interest 
-#col <- names(dem_df)
-#dem_df <- dem_df %>%
-  #select(c(col[1:15],"Opioid", "Corticosteroids", "Anti_anxiety", "Thyroid", "Diuretic", "Laxative", "Anti_emetic"))
-```
 
 ```{r}
 #remove non systemic/supplement columns 
@@ -645,14 +651,25 @@ dem_df <-dem_df %>%
 colnames(dem_df)
 ```
 ```{r}
-write.csv(dem_df, file.path("~/Library/CloudStorage/Box-Box/ZW_015_RADIOHEAD/data/important_dataframes_sammy/RADIOHEAD_demograpphic_df.csv"))
-```
+# Save demographic dataframe
+write.csv(
+  dem_df,
+  here::here("data", "processed", "RADIOHEAD_demographic_df.csv"),
+  row.names = FALSE
+)
 
+message(sprintf("✓ Saved RADIOHEAD_demographic_df.csv with %d patients", nrow(dem_df)))
+```
 
 trim to just opioids 
 ```{r}
 opioid_dems <- dem_df %>%
   select(1:13, "Opioid")
+```
+
+
+```{r session-info}
+sessionInfo()
 ```
 
 

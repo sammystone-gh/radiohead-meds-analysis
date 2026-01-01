@@ -1,6 +1,6 @@
 # config.R
 # Portable path configuration for RADIOHEAD medication analysis
-# 
+#
 # Usage: Source this file at the top of each script with:
 #   source(here::here("R", "config.R"))
 
@@ -21,8 +21,8 @@ paths <- list(
   output = here::here("output"),
   figures = here::here("output", "figures"),
   tables = here::here("output", "tables"),
-  
-  # Specific data files (update these based on your actual files)
+
+  # Specific data files
   multivariate_df = here::here("data", "processed", "RADIOHEAD_multivariate_df.csv"),
   systemic_drugs = here::here("data", "processed", "RADIOHEAD_systemicdrugs.csv"),
   polypharmacy_df = here::here("data", "processed", "RADIOHEAD_polypharmacy_df.csv"),
@@ -42,7 +42,7 @@ create_directories <- function() {
     paths$figures,
     paths$tables
   )
-  
+
   for (dir in dirs_to_create) {
     if (!dir.exists(dir)) {
       dir.create(dir, recursive = TRUE)
