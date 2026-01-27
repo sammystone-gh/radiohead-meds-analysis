@@ -1,7 +1,7 @@
 ---
 title: "04 - UMAP Visualization"
 author: "Sammy Stone"
-date: "2024-11-08"
+date: "2026-1-27"
 output: html_document
 ---
 
@@ -14,7 +14,10 @@ output: html_document
 # - Fig_2B.pdf (UMAP with opioid/beta-blocker overlap)
 # - Umap_coordinates.csv (UMAP coordinates saved for reproducibility)
 # - UMAP_model.rds (UMAP R object for reproducibility)
-# - UMAP_parameters.csv (Umap parameters for reproducibility)
+# - UMAP_parameters.csv (Umap parameters for reproducibility) 
+
+# Important Info: 
+# - Umap generated on 1-27-26 using umap: 0.2.10.0
 
 # ==============================================================================
 # Setup
