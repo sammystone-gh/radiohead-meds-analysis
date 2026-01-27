@@ -40,8 +40,8 @@ source(here::here("R", "config.R"))
 pall_df <- read.csv(palliative_bundle_df)
 sub_df <- read.csv(multivariate_df)
 
-message("✓ Loaded palliative bundle dataframe: ", nrow(pall_df), " patients")
-message("✓ Loaded multivariate dataframe: ", nrow(sub_df), " patients")
+message("palliative bundle dataframe: ", nrow(pall_df), " patients")
+message(" multivariate dataframe: ", nrow(sub_df), " patients")
 ```
 
 # ==============================================================================
@@ -239,18 +239,6 @@ plot(
 dev.off()
 
 message("✓ Saved Fig_3A.png")
-```
-
-# ==============================================================================
-# Summary
-# ==============================================================================
-```{r summary}
-message("\n=== Opioid and Palliative Drug Survival Analysis Complete ===")
-message("\nOutput Files:")
-message("Figures:")
-message("  - output/figures/Fig_3C.png")
-message("  - output/figures/Fig_3D.png")
-message("  - output/figures/Fig_3A.png")
 ```
 
 # ==============================================================================

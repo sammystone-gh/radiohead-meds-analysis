@@ -15,7 +15,7 @@ output: html_document
 # 2. Demographic summary by beta-blocker exposure (with chi-square tests)
 #
 # Outputs:
-# - Tables: Table_S3.xlsx (opioid demographics), Table_S5.xlsx (beta-blocker demographics)
+# - Tables: Table_S8.xlsx (opioid demographics), Table_S7.xlsx (beta-blocker demographics)
 
 # ==============================================================================
 # Setup
@@ -56,6 +56,7 @@ message("✓ Merged sex column into analysis dataframe")
 # ==============================================================================
 # Opioid Exposure Demographics
 # ==============================================================================
+** Table S8 **
 ```{r opioid-demographics}
 # Create factor labels for opioid exposure
 dem_opioid <- dem %>%
@@ -95,14 +96,13 @@ print(opioid_tbl)
 ```{r save-opioid-table}
 # Save as Excel file
 opioid_tbl %>%
-  as_hux_xlsx(here::here(tables, "Table_S3.xlsx"))
-
-message("✓ Saved Table_S3.xlsx (opioid demographics)")
+  as_hux_xlsx(here::here(tables, "Table_S8.xlsx"))
 ```
 
 # ==============================================================================
 # Beta-Blocker Exposure Demographics
 # ==============================================================================
+** Table S7 **
 ```{r bb-demographics}
 # Create factor labels for beta-blocker exposure
 dem_bb <- dem %>%
@@ -142,24 +142,13 @@ print(bb_tbl)
 ```{r save-bb-table}
 # Save as Excel file
 bb_tbl %>%
-  as_hux_xlsx(here::here(tables, "Table_S5.xlsx"))
+  as_hux_xlsx(here::here(tables, "Table_S7.xlsx"))
 
-message("✓ Saved Table_S5.xlsx (beta-blocker demographics)")
 ```
 
-# ==============================================================================
-# Summary
-# ==============================================================================
-```{r summary}
-message("\n=== Demographic Analysis Complete ===")
-message("\nOutput Files:")
-message("Tables:")
-message("  - output/tables/Table_S3.xlsx (opioid demographics)")
-message("  - output/tables/Table_S5.xlsx (beta-blocker demographics)")
-```
 
 # ==============================================================================
-# Session Info (for reproducibility)
+# Session Info 
 # ==============================================================================
 ```{r session-info}
 sessionInfo()

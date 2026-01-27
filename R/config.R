@@ -29,7 +29,10 @@ paths <- list(
   demographic_df = here::here("data", "processed", "RADIOHEAD_demographic_df.csv"),
   individual_drugs_df = here::here("data", "processed", "individual_drugs_df.csv"),
   palliative_bundle_df = here::here("data", "processed", "palliativebundledf.csv"),
-  subclasses_df = here::here("data", "processed", "RADIOHEAD_subclasses.csv")
+  subclasses_df = here::here("data", "processed", "RADIOHEAD_subclasses.csv"),
+  df_clean = here::here("data", "raw", "df.clean15.postMS_2024-08-22.csv"),
+  cardiac = here::here("data", "raw", "Cardiac Conditions Detail.xlsx"),
+  cards = here::here("data", "raw", "cleaned.cardiac.conditions.xlsx")
 )
 
 # Create directories if they don't exist

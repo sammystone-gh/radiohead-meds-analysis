@@ -1,0 +1,865 @@
+---
+title: "08_additional_analyses"
+author: "Sammy Stone"
+date: "2026-01-03"
+output: html_document
+---
+
+# Additional Analyses
+#
+# This script generates reviewer tables and performs analyses performed during the revision period.
+#
+# Key Analyses:
+# 1. rwPFS survival analysis (multivariable output similar to Table 1, but using rwPFS instead of rwOS)
+# 2. Sub-cohort (single cancer) beta-blocker and opioid survival analysis (univariable and multivariable top 5 cancer types + other)
+# 3.Beta-blocker vs Cardiac co-morbidity analyses
+#
+# Outputs:
+# - Tables S2, S4, S5 and S6
+#-  Figures: S1, Reviewer Table/Figure 1
+
+# ==============================================================================
+# Setup
+# ==============================================================================
+```{r load-packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(gtsummary)
+library(here)
+library(openxlsx)
+library(readxl)
+library(survival)
+library(survminer)
+library(viridis)
+library(huxtable)
+```
+
+```{r load-config}
+# Load project configuration
+source(here::here("R", "config.R"))
+```
+
+```{r load-data}
+# Load processed dataframes
+sub_df <- read.csv(multivariate_df)
+message("multivariate dataframe: ", nrow(sub_df), " patients") 
+
+cardiac <- openxlsx::read.xlsx(cardiac)
+message("Cardiac Conditions dataframe: ", nrow(cardiac), " patients") 
+
+df_clean <- read.csv(df_clean)
+message("df clean dataframe: ", nrow(df_clean), " patients") 
+
+cards <- openxlsx::read.xlsx(cards)
+
+```
+
+
+# ==============================================================================
+# Summary of Cancer Type x Beta-Blocker/Opioid Exposure
+# ==============================================================================
+
+get a sense of breadth of cancer types/counts for opioids/beta blockers
+
+```{r}
+# Create new dataframe with just cancer type, opioid + beta-blocker columns
+df1 <- sub_df %>%
+  select(meddra.disease.preferred.name, Opioid, Beta_Blockers)
+```
+
+```{r}
+# Tabulate patient counts for each cancer type and by drug exposure
+df2 <- df1 %>% 
+  group_by(meddra.disease.preferred.name) %>%
+  summarize(
+    patients = n(), 
+    opioid_n = sum(Opioid == 1), 
+    beta_blocker_n = sum(Beta_Blockers == 1), 
+    .groups = "drop"
+  ) %>%
+  arrange(desc(patients))
+```
+
+
+```{r}
+# Refine so that patient count is included in medication columns
+df3 <- df2 %>% 
+  mutate(
+    Opioids = paste0(opioid_n, "/", patients),
+    `Beta-Blockers` = paste0(beta_blocker_n, "/", patients)) %>%
+  rename(Cancer = meddra.disease.preferred.name) %>%
+  select(Cancer, Opioids, `Beta-Blockers` )
+```
+
+```{r}
+# Save
+  write.xlsx(df3, here::here(tables, "Reviewer_Table_1.xlsx"))
+```
+# ==============================================================================
+# Progression Free Survival (rwPFS) Analyses
+# ==============================================================================
+
+```{r}
+# Integrate PFS with sub_df
+sub_df <- read.csv(paths$multivariate_df)
+
+# get pfs
+pfs <- df_clean %>%
+  select(subject.id, probable.pfs, probable.pfs.event) %>%
+  rename(record_id = subject.id) 
+
+# truncate pfs
+pfs <- pfs %>%
+  mutate(probable.pfs.truncated = ifelse(probable.pfs >= 15, 15, probable.pfs)) 
+
+# remove old def
+pfs <- pfs %>%
+  select(-probable.pfs) %>%
+  rename(probable.pfs = probable.pfs.truncated) 
+
+# join 
+sub_df <- left_join(sub_df, pfs, by = "record_id")
+
+# rename 
+dat <- sub_df
+
+# verify no NA patients and numeric structure
+d1 <- dat %>% 
+  filter(!is.na(subject.dead.hospice))
+
+d1 <- dat %>% 
+  filter(!is.na(probable.pfs.event))
+
+
+```
+
+Step 1: Multivariate Cox Regression (All Drug Classes)
+
+**Table S2**
+```{r}
+# Relevel the covariates
+d1$Treatment <- relevel(factor(d1$Treatment), ref = "pd1-pdl1")
+d1$cancer_agreggate <- relevel(factor(d1$cancer_agreggate), ref = "Non-small cell lung cancer")
+d1$stage <- relevel(factor(d1$stage), ref = "iv")
+
+# List of baseline covariates
+base_covariates <- c("subject.age", "prior.targeted_therapy", "subject.metastatic.disease", "Treatment", "cancer_agreggate", "stage")
+
+# Initialize a list to store the results for each drug class
+cox_results <- list()
+
+# Loop through drug classes 
+drug_class_columns <- names(d1)[11:41]
+
+for (drug_class in drug_class_columns) {
+  
+   # Fit the Cox proportional hazards model with covariates and the drug class
+  formula_str <- paste0("Surv(probable.pfs, probable.pfs.event) ~ ", 
+                        paste(base_covariates, collapse = " + "), " + ", drug_class)
+  
+  fit <- coxph(as.formula(formula_str), data = d1)
+  
+  # Create summary table (show only drug class, suppress covariates)
+  tbl <- tbl_regression(fit, exponentiate = TRUE) %>%
+    modify_table_body(~ .x %>%
+      filter(variable == drug_class)) %>%
+    modify_header(label = paste0("Drug Class: ", drug_class))
+  
+# Add patient count
+   count <- sum(d1[[drug_class]] == 1, na.rm = TRUE)
+   
+# Add count as column
+  tbl <- tbl %>%
+    modify_table_body(~ .x %>%
+      mutate(Count = count)) %>%
+    modify_header(Count = "**Count**")  # Add the count to the header
+   
+  # Store the results
+  cox_results[[drug_class]] <- tbl
+}
+
+
+# Sort by count
+drug_counts <- data.frame(Drug = drug_class_columns,
+                          Count = sapply(drug_class_columns, function(dc) sum(d1[[dc]] == 1, na.rm = TRUE)))
+
+# Sort the drug counts in descending order
+drug_counts <- drug_counts[order(-drug_counts$Count),]
+
+# Reorder the cox_results based on sorted drug counts
+cox_results <- cox_results[match(drug_counts$Drug, names(cox_results))] 
+
+# Create a stacked gtsummary table
+final_table <- tbl_stack(cox_results) %>%
+   modify_header(label = "Drug Class")
+
+#bold the p's
+final_table <- final_table %>%
+  bold_p(t = 0.05)  
+
+# Print the final table
+final_table 
+
+```
+
+
+
+Step 2: Add Benjamini-Hochberg Correction
+```{r bh-correction}
+# Extract p-values
+p_values <- final_table$table_body$p.value
+
+# Perform BH correction
+q_values <- p.adjust(p_values, method = "BH")
+q_values <- style_pvalue(q_values)
+
+# Add q-values to table
+final_table <- final_table %>%
+  modify_table_body(~ .x %>% mutate(`Q-value` = q_values)) %>%
+  modify_header(`Q-value` = "**q-value**")
+
+print(final_table)
+```
+
+Step 3: Univariate Cox Regression (All Drug Classes)
+```{r}
+# Initialize a list 
+uv_results <- list()
+
+# Loop through each drug class 
+for (drug_class in drug_class_columns) {
+  
+  # Fit a univariable Cox model
+  formula_uv <- as.formula(paste0("Surv(probable.pfs, probable.pfs.event) ~ `", drug_class, "`"))
+  fit_uv <- coxph(formula_uv, data = d1)
+  
+  # Create a table summarizing the results 
+  tbl_uv <- tbl_regression(fit_uv, exponentiate = TRUE) %>%
+     modify_header(label = "Covariate") %>%
+    modify_table_body(~ .x %>% mutate(variable = drug_class)) 
+  
+  # Store results
+  uv_results[[drug_class]] <- tbl_uv
+}
+# Use the drug counts to reorder
+uv_results_ordered <- uv_results[match(drug_counts$Drug, names(uv_results))]
+
+# Combine all tables into a single table after reordering
+univariate_table <- tbl_stack(uv_results_ordered)
+
+#bold the p's
+univariate_table <- univariate_table %>%
+  bold_p(t = 0.05)  
+
+# Print the final table
+univariate_table
+```
+
+
+Step 4: Merge Univariate and Multivariate Tables
+```{r merge-tables}
+# Merge tables with headers
+merged_table <- tbl_merge(
+  tbls = list(univariate_table, final_table),
+  tab_spanner = c("**Univariate**", "**Multivariate**")
+)
+
+# Display as formatted table
+merged_table %>% 
+  as_gt() %>% 
+  gt::tab_options(table.font.names = "Arial")
+
+# Save merged table to Excel
+merged_table %>%
+  as_hux_xlsx(here::here("output", "tables", "Table_S2_PFS.xlsx"))
+
+```
+
+# ==============================================================================
+# Single Cancer type opioid + beta-blocker KMs
+# ==============================================================================
+** Tables S5 and S6 **
+```{r}
+# Create aggregated treatment column 
+single_df <- sub_df %>%
+  mutate(
+    treatment.three = case_when(
+    sub_df$Treatment == "pd1-pdl1" ~ "pd1-pdl1",
+    sub_df$Treatment == "chemo+ICI"  ~ "ICI + other",
+    sub_df$Treatment == "ctla4+pd1-pdl1" ~ "ctla4+pd1-pdl1",
+    sub_df$Treatment == "other+pd1-pdl1" ~ "ICI + other",
+    TRUE ~ NA_character_)) %>%
+  mutate(treatment.three = as.factor(treatment.three)) 
+
+
+```
+
+
+Running as a function to make more efficient, covariate adjustment depends on cancer type (ie sclc too small for prior
+targeted therapy), all cancers except other use treatment.three
+
+```{r}
+# Create function that performs univariable and multivariable analyses
+create_combined_tables <- function(data,
+                                   drug_var,
+                                   time_var = "os",
+                                   event_var = "subject.dead.hospice",
+                                   base_covariates = c("subject.age", 
+                                                      "prior.targeted_therapy", 
+                                                      "subject.metastatic.disease", 
+                                                      "stage",
+                                                      "treatment.three"),
+                                   cancer_type = c("Non-small cell lung cancer", 
+                                                  "Malignant melanoma", 
+                                                  "Renal cell carcinoma", 
+                                                  "Bladder cancer",
+                                                  "Small cell lung cancer",
+                                                  "Other"),
+                                   output_dir = here::here("output", "tables")) {
+
+  
+  # Initialize results lists
+  combined_results <- list()
+  model_objects <- list()  # to check later
+  
+  # Loop through each cancer type
+  for (cancer in cancer_type) {
+    
+    # Filter data for this cancer type
+    cancer_data <- data %>% 
+      filter(cancer_agreggate == cancer) %>%
+      filter(!is.na(.data[[event_var]]))
+    
+    message(paste("Processing", cancer, "- N =", nrow(cancer_data)))
+    
+    # Skip if no data (shouldn't be the case but sanity step)
+    if (nrow(cancer_data) == 0) {
+      message(paste("  ✗ Skipping - no data"))
+      next
+    }
+    
+    # Calculate drug exposure counts/proportion
+    n_total <- nrow(cancer_data)
+    n_exposed <- sum(cancer_data[[drug_var]] == 1, na.rm = TRUE)
+    exposure_ratio <- paste0(n_exposed, "/", n_total)
+    
+    # --- UNIVARIABLE MODEL ---
+    formula_uv <- as.formula(paste0("Surv(", time_var, ", ", event_var, ") ~ `", drug_var, "`"))
+    
+    uv_result <- tryCatch({
+      fit_uv <- coxph(formula_uv, data = cancer_data)
+      tbl_uv <- tbl_regression(fit_uv, exponentiate = TRUE) %>%
+        bold_p(t = 0.05)
+      list(success = TRUE, table = tbl_uv)
+    }, error = function(e) {
+      message(paste("  ✗ Univariate error:", e$message))
+      list(success = FALSE, table = NULL)
+    })
+    
+    # --- MULTIVARIABLE MODEL ---
+    # Relevel stage if it exists
+    if ("stage" %in% names(cancer_data)) {
+      cancer_data$stage <- relevel(factor(cancer_data$stage), ref = "iv")
+    }
+    
+    # Relevel treatment variables if they exist
+    if ("Treatment" %in% names(cancer_data)) {
+      cancer_data$Treatment <- relevel(factor(cancer_data$Treatment), ref = "pd1-pdl1")
+    }
+    if ("treatment.three" %in% names(cancer_data)) {
+      cancer_data$treatment.three <- relevel(factor(cancer_data$treatment.three), ref = "pd1-pdl1")
+    }
+    
+    # Modify covariates based on cancer type
+    modified_covariates <- base_covariates
+    
+    # For "Other" cancer type, use original Treatment instead of treatment.three
+    if (cancer == "Other") {
+      modified_covariates <- gsub("treatment.three", "Treatment", modified_covariates)
+      message("  Note: Using  original 'Treatment' for Other cancer type")
+    }
+    
+    # For SCLC, exclude prior.targeted_therapy
+    if (cancer == "Small cell lung cancer") {
+      modified_covariates <- modified_covariates[modified_covariates != "prior.targeted_therapy"]
+      message("  Note: Excluded 'prior.targeted_therapy' for SCLC due to sparse data")
+    }
+    
+    # Check which covariates exist
+    available_covariates <- modified_covariates[modified_covariates %in% names(cancer_data)]
+    
+    mv_result <- if (length(available_covariates) > 0) {
+      formula_str <- paste0("Surv(", time_var, ", ", event_var, ") ~ ", 
+                           paste(available_covariates, collapse = " + "), 
+                           " + `", drug_var, "`")
+      
+      tryCatch({
+        fit_mv <- coxph(as.formula(formula_str), data = cancer_data)
+        
+        # Save the model object for inspection
+        model_objects[[cancer]] <- fit_mv
+        
+        tbl_mv <- tbl_regression(fit_mv, exponentiate = TRUE) %>%
+          modify_table_body(~ .x %>% filter(variable == drug_var)) %>%
+          bold_p(t = 0.05)
+        list(success = TRUE, table = tbl_mv)
+      }, error = function(e) {
+        message(paste("  ✗ Multivariable error:", e$message))
+        list(success = FALSE, table = NULL)
+      })
+    } else {
+      message(paste("  ✗ No covariates available for multivariable model"))
+      list(success = FALSE, table = NULL)
+    }
+    
+    # --- MERGE TABLES ---
+    if (uv_result$success && mv_result$success) {
+      
+      # Merge univariate and multivariable
+      combined_tbl <- tbl_merge(
+        tbls = list(uv_result$table, mv_result$table),
+        tab_spanner = c("**Univariable**", "**Multivariable**")
+      ) %>%
+        modify_header(label = "**Cancer Type**") %>%
+        modify_table_body(~ .x %>% mutate(
+          label = cancer,
+          n_exposed_total = exposure_ratio
+        )) %>%
+        modify_header(n_exposed_total = "**N Exposed/Total**") %>%
+        modify_table_body(~ .x %>% relocate(n_exposed_total, .after = label))
+      
+      combined_results[[cancer]] <- combined_tbl
+      message(paste("  ✓ Combined analysis complete -", exposure_ratio, "exposed"))
+      
+    } else if (uv_result$success) {
+      # Only univariate succeeded
+      uv_only_tbl <- uv_result$table %>%
+        modify_header(label = "**Cancer Type**") %>%
+        modify_table_body(~ .x %>% mutate(
+          label = cancer,
+          n_exposed_total = exposure_ratio
+        )) %>%
+        modify_header(n_exposed_total = "**N Exposed/Total**") %>%
+        modify_table_body(~ .x %>% relocate(n_exposed_total, .after = label))
+      
+      combined_results[[cancer]] <- uv_only_tbl
+      message(paste("  ⚠ Only univariate available -", exposure_ratio, "exposed"))
+    }
+  }
+  
+  # Check if we have any results
+  if (length(combined_results) == 0) {
+    message("\n✗ No results to export")
+    return(NULL)
+  }
+  
+  # Stack results
+  stacked_table <- tbl_stack(combined_results) %>%
+    modify_caption(paste0("**Cox Regression Analysis: ", drug_var, "**"))
+  
+  # Print table
+  print(stacked_table)
+  
+# Export as Excel using huxtable
+clean_drug_name <- gsub("_", "", tolower(drug_var))
+excel_file <- here::here(output_dir, paste0("combined_", clean_drug_name, ".xlsx"))
+
+stacked_table %>%
+  as_hux_table() %>%
+  huxtable::quick_xlsx(file = excel_file)
+
+message(paste("\n✓ Saved combined Excel file:", basename(excel_file)))
+  
+  # Create a summary of covariates used
+  covariate_summary <- tibble(
+    cancer_type = names(combined_results),
+    covariates_used = sapply(names(combined_results), function(cancer) {
+      modified_covariates <- base_covariates
+      if (cancer == "Other") {
+        modified_covariates <- gsub("treatment.three", "Treatment", modified_covariates)
+      }
+      if (cancer == "Small cell lung cancer") {
+        modified_covariates <- modified_covariates[modified_covariates != "prior.targeted_therapy"]
+      }
+      paste(modified_covariates, collapse = ", ")
+    })
+  )
+  
+  message("\n=== COVARIATES USED BY CANCER TYPE ===")
+  print(covariate_summary)
+  
+  return(list(
+    table = stacked_table, 
+    models = model_objects,
+    covariates = covariate_summary
+  ))
+}
+```
+
+
+```{r}
+# RUN ANALYSES
+
+# Create combined tables for Opioids
+opioid_combined <- create_combined_tables(
+  data = single_df,
+  drug_var = "Opioid",
+  base_covariates = c("subject.age", 
+                     "prior.targeted_therapy", 
+                     "subject.metastatic.disease", 
+                     "stage",
+                     "treatment.three")
+)
+
+# Create combined tables for Beta-Blockers
+betablocker_combined <- create_combined_tables(
+  data = single_df,
+  drug_var = "Beta_Blockers",
+  base_covariates = c("subject.age", 
+                     "prior.targeted_therapy", 
+                     "subject.metastatic.disease", 
+                     "stage",
+                     "treatment.three")
+)
+```
+
+
+```{r}
+#  Check Results
+# View the tables
+opioid_combined$table
+betablocker_combined$table
+
+```
+
+
+```{r}
+# Detailed checks
+
+cat("\n\n=== OPIOID - SMALL CELL LUNG CANCER MODEL ===\n")
+cat("Covariates in model:\n")
+print(names(coef(opioid_combined$models[["Small cell lung cancer"]])))
+cat("\nFull model summary:\n")
+summary(opioid_combined$models[["Small cell lung cancer"]])
+
+cat("\n\n=== OPIOID - OTHER CANCER TYPE MODEL ===\n")
+cat("Covariates in model:\n")
+print(names(coef(opioid_combined$models[["Other"]])))
+cat("\nFull model summary:\n")
+summary(opioid_combined$models[["Other"]])
+```
+
+
+```{r}
+cat("\n\n=== BETA-BLOCKER - SMALL CELL LUNG CANCER MODEL ===\n")
+cat("Covariates in model:\n")
+print(names(coef(betablocker_combined$models[["Small cell lung cancer"]])))
+cat("\nFull model summary:\n")
+summary(betablocker_combined$models[["Small cell lung cancer"]])
+
+cat("\n\n=== BETA-BLOCKER - OTHER CANCER TYPE MODEL ===\n")
+cat("Covariates in model:\n")
+print(names(coef(betablocker_combined$models[["Other"]])))
+cat("\nFull model summary:\n")
+summary(betablocker_combined$models[["Other"]])
+```
+
+
+```{r}
+# check covariates used
+
+cat("\n\n=== CHECK ALL OPIOID MODELS ===\n")
+for (cancer_name in names(opioid_combined$models)) {
+  cat(paste0("\n", cancer_name, ":\n"))
+  cat("  Variables: ", paste(names(coef(opioid_combined$models[[cancer_name]])), collapse = ", "), "\n")
+}
+
+cat("\n\n=== CHECK ALL BETA-BLOCKER MODELS ===\n")
+for (cancer_name in names(betablocker_combined$models)) {
+  cat(paste0("\n", cancer_name, ":\n"))
+  cat("  Variables: ", paste(names(coef(betablocker_combined$models[[cancer_name]])), collapse = ", "), "\n")
+}
+```
+
+
+
+# ==============================================================================
+# Beta-Blocker vs Cardiac Co-morbidity rwOS
+# ==============================================================================
+** Fig S1**
+```{r}
+# recreate cardiac condition yes/no 
+cardiac_sub <- cards %>%
+  select(patient.ID, cardiac_category) %>%
+  rename(record_id = "patient.ID") %>%
+  mutate(value = 1)
+
+cardiac_wide <- pivot_wider(
+              cardiac_sub, 
+              names_from = cardiac_category, 
+              values_from = value, 
+              id_cols = record_id, 
+              values_fill = 0, 
+              values_fn = max) 
+
+cardiac_conditions <- colnames(cardiac_wide[2:11])
+
+cardiac_new <- cardiac_wide %>%
+  mutate(
+    cardiac.cond = as.integer(if_any(cardiac_conditions)))
+```
+
+```{r}
+# rename
+df4 <- cardiac_new 
+
+# Merge cardiac with survival info from sub_df
+sub <- sub_df %>% select(record_id, subject.dead.hospice, os, Beta_Blockers)
+
+df5 <- left_join(sub, df4, by = c("record_id")) 
+
+# replace NAs 
+
+cardiac_cols <- c(
+  "CORONARY ARTERY DISEASE/ISCHEMIC HEART DISEASE",
+  "PERIPHERAL VASCULAR/VENOUS DISEASE (INCLUDES AORTIC ANEURYSMS)",
+  "ARRYTHMIAS",
+  "DYSLIPIDEMIA",
+  "OTHER",
+  "DVT / PULMONARY EMBOLISM",
+  "VALVULAR DISEASE",
+  "HEART FAILURE/CARDIOMYOPATHY",
+  "CEREBROVASCULAR DISEASE",
+  "EFFUSIONS",
+  "cardiac.cond"
+)
+
+df5 <- df5%>%
+  mutate(
+    across(all_of(cardiac_cols), ~ replace_na(.x, 0))
+  )
+
+write_csv(df5, here::here("data", "processed", "multivariate_df_w_cardiac.csv"))
+
+```
+
+
+
+```{r}
+# Contingency Table -- Beta Blocker x General Cardiac Condition
+
+cont <- table(df5$Beta_Blockers, df5$cardiac.cond)
+
+dimnames(cont) <- list(
+  "Beta-blockers" = c("No", "Yes"),
+  "Cardiac Condition" = c("No", "Yes")
+)
+
+print(cont)
+```
+
+
+
+```{r}
+# Tiered, 4 KM approach
+df7 <- df5 %>%
+  mutate(condition = case_when(
+    Beta_Blockers == 1 & cardiac.cond == 1 ~ "Beta-Blocker (Yes), Cardiac Condition (Yes)",
+    Beta_Blockers == 1 & cardiac.cond == 0 ~ "Beta-Blocker (Yes), Cardiac Condition (No)",
+    Beta_Blockers == 0 & cardiac.cond == 1 ~ "Beta-Blocker (No), Cardiac Condition (Yes)",
+    Beta_Blockers == 0 & cardiac.cond == 0 ~ "Beta-Blocker (No), Cardiac Condition (No)")) %>%
+  mutate(
+    condition = factor(condition, 
+                       levels = c(
+                         "Beta-Blocker (Yes), Cardiac Condition (Yes)",
+                         "Beta-Blocker (Yes), Cardiac Condition (No)",
+                         "Beta-Blocker (No), Cardiac Condition (Yes)",
+                         "Beta-Blocker (No), Cardiac Condition (No)")))
+
+km_model <- survfit(
+  Surv(os, subject.dead.hospice) ~ condition, 
+  data = df7
+)
+
+```
+
+```{r}
+plot <- ggsurvplot(
+  km_model,
+  data = df7,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = FALSE,
+  legend.title = "",
+  legend.labs = levels(df7$condition),
+  palette = mako(4),
+  xlab = "Time",
+  ylab = "Survival Probability",
+  break.time.by = 6,
+  surv.median.line = "hv",
+  ggtheme = theme_minimal()
+) 
+# Apply theme and formatting to main plot
+plot$plot <- plot$plot +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.5, 0.2),
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 18)
+  ) +
+  xlab("Time (months)")
+
+# Apply theme to risk table
+plot$table <- plot$table + 
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    plot.title = element_text(size = 20)
+  ) +
+  xlab("Time (months)")
+
+print(plot)
+```
+
+```{r}
+pairwise_lr <- pairwise_survdiff(
+  Surv(os, subject.dead.hospice) ~ condition,
+  data = df7,
+  p.adjust.method = "BH"  
+)
+
+pairwise_lr
+
+pairwise_lr$p.value
+
+pairwise <- as.data.frame(pairwise_lr$p.value)
+
+str(pairwise_lr)
+
+```
+
+```{r}
+# Save the plot
+output_file_png <- here::here(figures, "Fig_S1.png")
+png(output_file_png, width = 11, height = 8, units = "in", res = 300)
+print(plot)
+dev.off()
+
+```
+
+
+
+# ==============================================================================
+# Stage IV Opioid KM
+# ==============================================================================
+
+```{r}
+# Subset to stage IV
+
+stage4 <- sub_df %>%
+  filter(stage == "iv")
+
+```
+
+
+```{r}
+# Fit Kaplan-Meier model
+km_model <- survfit(Surv(os, subject.dead.hospice) ~ Opioid, data = stage4)
+
+# Define custom colors
+custom_colors <- c("orange", "deepskyblue")
+
+# Create the survival plot
+plot <- ggsurvplot(
+  km_model, 
+  data = stage4, 
+  pval = TRUE, 
+  pval.size = 7,  
+  risk.table.fontsize = 7, 
+  conf.int = TRUE, 
+  risk.table = TRUE,
+  legend.labs = c("No Opioid Exposure", "Opioid Exposure"),
+  palette = custom_colors,
+  legend.title = "",
+  title = "Stage IV"
+)
+
+# Apply theme and formatting to main plot
+plot$plot <- plot$plot +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.6, 0.2),
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 20),
+    legend.title = element_text(size = 20), 
+    title = element_text(size = 22),
+    plot.title = element_text(hjust = 0.5)
+  ) +
+  xlab("Time (months)")
+
+# Apply theme to risk table
+plot$table <- plot$table + 
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 20),
+    plot.title = element_text(size = 20)
+  ) +
+  xlab("Time (months)")
+
+print(plot)
+```
+```{r}
+# Save the plot
+output_file_png <- here::here(figures, "Reviewer_Figure_1.png")
+png(output_file_png, width = 11, height = 8, units = "in", res = 300)
+print(plot)
+dev.off()
+
+```
+
+# ==============================================================================
+# BB Opioid Interaction
+# ==============================================================================
+**Table S4**
+
+```{r}
+# Prepare data
+d1_interaction <- sub_df %>%
+  select(record_id, os, subject.dead.hospice, subject.age, prior.targeted_therapy,
+         subject.metastatic.disease, Treatment, cancer_agreggate, stage,
+         Opioid, Beta_Blockers)
+
+# Relevel covariates
+d1_interaction$Treatment <- relevel(factor(d1_interaction$Treatment), ref = "pd1-pdl1")
+d1_interaction$cancer_agreggate <- relevel(factor(d1_interaction$cancer_agreggate),
+                                           ref = "Non-small cell lung cancer")
+d1_interaction$stage <- relevel(factor(d1_interaction$stage), ref = "iv")
+
+# Fit model with interaction
+formula_interaction <- paste0("Surv(os, subject.dead.hospice) ~ ",
+                             paste(colnames(d1_interaction)[-(1:3)], collapse = " + "),
+                             " + Opioid:Beta_Blockers")
+
+fit_interaction <- coxph(as.formula(formula_interaction), data = d1_interaction)
+
+# Summary tables
+gt_table_int <- tbl_regression(fit_interaction, exponentiate = TRUE)
+
+print(gt_table_int)
+
+# Save as Excel files
+output_dir <- here::here("output", "tables")
+
+# Save exponentiated version (Hazard Ratios)
+gt_table_int %>%
+  as_hux_table() %>%
+  huxtable::quick_xlsx(file = here::here(output_dir, "Table_S4_bb_interaction_model_hr.xlsx"))
+
+```
+

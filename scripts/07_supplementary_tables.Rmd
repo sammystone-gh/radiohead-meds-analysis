@@ -34,8 +34,8 @@ sub_df <- read_csv(multivariate_df)
 # Load per-patient harmonized medication data
 perpatient <- read_excel(here::here(data_raw, "Per_patient_harmonized_round_10.xlsx"))
 
-message("✓ Loaded multivariate dataframe: ", nrow(sub_df), " patients")
-message("✓ Loaded per-patient medication data: ", nrow(perpatient), " medication entries")
+message("multivariate dataframe: ", nrow(sub_df), " patients")
+message(" per-patient medication data: ", nrow(perpatient), " medication entries")
 ```
 
 # ==============================================================================

@@ -24,7 +24,7 @@ output:
 # - Fig_2A.png (significant drug classes forest plot)
 # - Fig_3B.png (opioid-palliative interaction forest plot)
 # - palliativebundledf.csv (for use in subsequent analyses)
-# - Table S2 and S4 (full model outputs for Figures 2A and 3B)
+# - Table S3 and S9 (full model outputs for Figures 2A and 3B)
 # - Figures 2C and 2D (Kaplan Meir curves for opioid and beta-blocker exposure)
 
 # ==============================================================================
@@ -203,7 +203,7 @@ message("✓ Saved Table_1.xlsx")
 # ==============================================================================
 # Step 4: Combined Multivariate Model (Significant Drugs)
 # ==============================================================================
-**Table S2**
+**Table S3**
 ```{r combined-multivariate}
 # Select significant drug classes and covariates
 d1_combined <- dat %>%
@@ -233,12 +233,11 @@ print(gt_table2)
 
 # Save combined multivariate tables to Excel
 gt_table %>%
-  as_hux_xlsx(here::here("output", "tables", "Table_S2_Log.xlsx"))
+  as_hux_xlsx(here::here("output", "tables", "Table_S3_Log.xlsx"))
 
 gt_table2 %>%
-  as_hux_xlsx(here::here("output", "tables", "Table_S2.xlsx"))
+  as_hux_xlsx(here::here("output", "tables", "Table_S3.xlsx"))
 
-message("✓ Saved Table S2 tables")
 
 # Check VIF for multicollinearity
 vif_model <- lm(Opioid ~ polypharmacy + Corticosteroid_systemic + Beta_Blockers + 
@@ -364,7 +363,7 @@ message(sprintf("  Patients with both: %d",
 ```
 
 ## Multivariate Model with Interaction Term
-
+**Table S9**
 ```{r opioid-interaction}
 # Prepare data
 d1_interaction <- pall_df %>%
@@ -394,12 +393,11 @@ print(gt_table_int2)
 
 # Save interaction model tables to Excel
 gt_table_int %>%
-  as_hux_xlsx(here::here("output", "tables", "Table_S4_Log.xlsx"))
+  as_hux_xlsx(here::here("output", "tables", "Table_S9_Log.xlsx"))
 
 gt_table_int2 %>%
-  as_hux_xlsx(here::here("output", "tables", "Table_S4.xlsx"))
+  as_hux_xlsx(here::here("output", "tables", "Table_S9.xlsx"))
 
-message("✓ Saved Table S4 tables")
 
 # Calculate counts for interaction terms
 interaction_counts <- c(
@@ -633,30 +631,7 @@ message("✓ Saved Fig_2D.png")
 # ==============================================================================
 # Summary
 # ==============================================================================
-```{r summary}
-message("\n=== Multivariate Analysis Complete ===")
-message(sprintf("Analyzed %d drug classes", length(drug_class_columns)))
-message(sprintf("Significant in multivariate (p<0.05): %d", 
-                sum(final_table$table_body$p.value < 0.05, na.rm = TRUE)))
-message(sprintf("Significant after BH correction (q<0.05): %d",
-                sum(as.numeric(gsub("[^0-9.]", "", q_values)) < 0.05, na.rm = TRUE)))
 
-message("\n=== Output Files ===")
-message("\nTables:")
-message("  - output/tables/Table_1.xlsx")
-message("  - output/tables/Table_S2.xlsx")
-message("  - output/tables/Table_S2_Log.xlsx")
-message("  - output/tables/Table_S4.xlsx")
-message("  - output/tables/Table_S4_Log.xlsx")
-
-message("\nFigures:")
-message("  - output/figures/Figure_2A.png")
-message("  - output/figures/Fig_2C.png")
-message("  - output/figures/Fig_2D.png")
-message("  - output/figures/Figure_3B.png")
-
-
-```
 ```{r session-info}
 sessionInfo()
 ```
