@@ -1,9 +1,9 @@
 # .gitignore for RADIOHEAD analysis repository
 
 # ============================================================================
-# CRITICAL: PRIVATE DATA - NEVER COMMIT
+# PRIVATE DATA 
 # ============================================================================
-# All data files contain protected health information (PHI)
+# All data files 
 data/
 !data/.gitkeep
 !data/raw/.gitkeep
@@ -60,7 +60,7 @@ docs/
 site/
 
 # ============================================================================
-# OUTPUT FILES (optional - uncomment if you want version control on these)
+# OUTPUT FILES 
 # ============================================================================
 # Figures
 # output/figures/*.png
@@ -166,10 +166,3 @@ backup/
 old/
 archive/
 
-# ============================================================================
-# NOTES TO SELF
-# ============================================================================
-# If you want to add notes files that shouldn't be tracked:
-TODO.md
-NOTES.txt
-scratch/
