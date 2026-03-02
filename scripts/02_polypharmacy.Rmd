@@ -117,7 +117,6 @@ png(
 print(km_plot) 
 dev.off()
 
-message("✓ Saved Fig_1B.png")
 ```
 
 # ==============================================================================
@@ -182,7 +181,7 @@ png(
 )
 print(lollipop_plot) 
 dev.off()
-message("✓ Saved Fig_1A.png") 
+
 ```
 
 

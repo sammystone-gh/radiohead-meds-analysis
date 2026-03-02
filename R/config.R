@@ -32,7 +32,7 @@ paths <- list(
   subclasses_df = here::here("data", "processed", "RADIOHEAD_subclasses.csv"),
   df_clean = here::here("data", "raw", "df.clean15.postMS_2024-08-22.csv"),
   cardiac = here::here("data", "raw", "Cardiac Conditions Detail.xlsx"),
-  cards = here::here("data", "raw", "cleaned.cardiac.conditions.xlsx")
+  cards = here::here("data", "raw", "cleaned.cardiac.conditions.v2.xlsx")
 )
 
 # Create directories if they don't exist

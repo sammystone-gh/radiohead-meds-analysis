@@ -50,7 +50,6 @@ sex_col <- dem_df %>%
 # Merge sex column with multivariate dataframe
 dem <- left_join(sub_df, sex_col, by = "record_id")
 
-message("✓ Merged sex column into analysis dataframe")
 ```
 
 # ==============================================================================

@@ -197,7 +197,6 @@ merged_table %>%
 merged_table %>%
   as_hux_xlsx(here::here("output", "tables", "Table_1.xlsx"))
 
-message("✓ Saved Table_1.xlsx")
 ```
 
 # ==============================================================================
@@ -331,7 +330,6 @@ ggsave(
   dpi = 300
 )
 
-message("✓ Saved Fig_2A.png")
 ```
 
 # ==============================================================================
@@ -485,7 +483,6 @@ ggsave(
   dpi = 300
 )
 
-message("✓ Saved Fig_3B .png")
 ```
 
 # ==============================================================================
@@ -557,7 +554,6 @@ png(
 print(km_opioid)
 dev.off()
 
-message("✓ Saved Fig_2C.png")
 ```
 
 **Fig 2D**
@@ -626,7 +622,6 @@ png(
 print(km_beta)
 dev.off()
 
-message("✓ Saved Fig_2D.png")
 ```
 # ==============================================================================
 # Summary

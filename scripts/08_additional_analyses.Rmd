@@ -580,14 +580,12 @@ for (cancer_name in names(betablocker_combined$models)) {
 }
 ```
 
-
-
 # ==============================================================================
 # Beta-Blocker vs Cardiac Co-morbidity rwOS
 # ==============================================================================
 ** Fig S1**
 ```{r}
-# recreate cardiac condition yes/no 
+# create cardiac condition yes/no 
 cardiac_sub <- cards %>%
   select(patient.ID, cardiac_category) %>%
   rename(record_id = "patient.ID") %>%
@@ -601,11 +599,12 @@ cardiac_wide <- pivot_wider(
               values_fill = 0, 
               values_fn = max) 
 
-cardiac_conditions <- colnames(cardiac_wide[2:11])
+cardiac_conditions <- colnames(cardiac_wide[2:10])
 
 cardiac_new <- cardiac_wide %>%
   mutate(
-    cardiac.cond = as.integer(if_any(cardiac_conditions)))
+    cardiac.cond = as.integer(if_any(all_of(cardiac_conditions), ~ . == 1))
+  )
 ```
 
 ```{r}
@@ -620,16 +619,15 @@ df5 <- left_join(sub, df4, by = c("record_id"))
 # replace NAs 
 
 cardiac_cols <- c(
-  "CORONARY ARTERY DISEASE/ISCHEMIC HEART DISEASE",
+  "CORONARY ARTERY DISEASE/ISCHEMIC HEART DISEASE", 
   "PERIPHERAL VASCULAR/VENOUS DISEASE (INCLUDES AORTIC ANEURYSMS)",
   "ARRYTHMIAS",
   "DYSLIPIDEMIA",
   "OTHER",
-  "DVT / PULMONARY EMBOLISM",
+  "DVT / PULMONARY EMBOLISM / SVC", 
   "VALVULAR DISEASE",
   "HEART FAILURE/CARDIOMYOPATHY",
-  "CEREBROVASCULAR DISEASE",
-  "EFFUSIONS",
+  "CEREBROVASCULAR DISEASE",#
   "cardiac.cond"
 )
 

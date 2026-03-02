@@ -23,6 +23,7 @@ library(openxlsx)
 library(readxl)
 library(here)
 ```
+
 ```{r load-config}
 # Load project configuration
 source(here::here("R", "config.R"))
@@ -74,6 +75,7 @@ if (nrow(missing_records) > 0) {
   message(sprintf("  Note: %d patients only on vitamins/supplements (excluded)", nrow(missing_records)))
 }
 ```
+
 ```{r consolidate-corticosteroids}
 # Consolidate inhaled corticosteroids into non-systemic category
 perpatient_filt4 <- perpatient_filt3 %>%
@@ -216,7 +218,6 @@ message(sprintf("  Drug classes represented: %d", n_distinct(combined_sorted$Dru
 # Save as Excel file (Table S1)
 write.xlsx(combined_sorted, here::here(tables, "Table_S1.xlsx"))
 
-message("\n✓ Saved Table_S1.xlsx")
 ```
 
 # ==============================================================================

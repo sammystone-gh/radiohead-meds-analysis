@@ -165,9 +165,6 @@ write.csv(
   row.names = FALSE
 )
 
-message("✓ Saved UMAP coordinates to: output/data/UMAP_coordinates.csv")
-message("✓ Saved UMAP model to: output/data/UMAP_model.rds")
-message("✓ Saved UMAP parameters to: output/data/UMAP_parameters.csv")
 ```
 
 # ==============================================================================
@@ -211,28 +208,8 @@ ggsave(
   height = 7
 )
 
-message("✓ Saved Fig_2B.pdf")
 ```
 
-# ==============================================================================
-# Summary
-# ==============================================================================
-```{r summary}
-message("\n=== UMAP Analysis Complete ===")
-message(sprintf("Total patients: %d", nrow(umap_df)))
-message(sprintf("  Opioids only: %d", sum(umap_df$Exposure == "Opioids")))
-message(sprintf("  Beta-blockers only: %d", sum(umap_df$Exposure == "Beta-Blockers")))
-message(sprintf("  Overlap (both): %d", sum(umap_df$Exposure == "Overlap")))
-message(sprintf("  Other: %d", sum(umap_df$Exposure == "Other")))
-
-message("\n=== Output Files ===")
-message("Figures:")
-message("  - output/figures/Fig_2B.pdf")
-message("Data:")
-message("  - output/data/UMAP_coordinates.csv")
-message("  - output/data/UMAP_model.rds")
-message("  - output/data/UMAP_parameters.csv")
-```
 
 # ==============================================================================
 # Session Info
